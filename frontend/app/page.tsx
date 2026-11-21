@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { api, Market, Row, Signal, GROUP_LABEL, STAGE_LABEL, fullDate, num, pct, price } from "@/lib/api";
 
 type SortKey = "sym" | "stage" | "chg" | "rs20" | "rs60" | "liq" | "dist" | "ready" | "rr";
@@ -16,6 +17,8 @@ export default function Home() {
   const [sectorList, setSectorList] = useState<Record<string, string>>({});
   const [stage, setStage] = useState("all");
   const [minLiq, setMinLiq] = useState(10);
+  const [q, setQ] = useState("");                 // tìm mã: lọc theo tiền tố, Enter mở trang mã
+  const router = useRouter();
   const [sort, setSort] = useState<{ k: SortKey; desc: boolean }>({ k: "stage", desc: false });
   const [err, setErr] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
@@ -49,7 +52,7 @@ export default function Home() {
   };
 
   const view = useMemo(() => {
-    const v = rows.filter((r) =>
+    const v = q ? rows.filter((r) => r.sym.startsWith(q)) : rows.filter((r) =>   // đang tìm mã: bỏ qua các bộ lọc khác
       (group === "all" || r.groups.includes(group)) &&
       (stage === "all" || (stage === "early" ? isEarly(r) || r.tag === "D sớm"
         : stage === "zone" ? !!r.in_zone : r.stage === stage)) && r.liq >= minLiq);
@@ -60,7 +63,7 @@ export default function Home() {
       const c = x < y ? -1 : x > y ? 1 : 0;
       return sort.desc ? -c : c;
     });
-  }, [rows, group, stage, minLiq, sort]);
+  }, [rows, group, stage, minLiq, sort, q]);
 
   const th = (k: SortKey, label: string) => (
     <th onClick={() => setSort((s) => ({ k, desc: s.k === k ? !s.desc : k !== "sym" && k !== "stage" }))}>
@@ -116,6 +119,11 @@ export default function Home() {
             ))}
           </div>
           <div className="row">
+            <form onSubmit={(e) => { e.preventDefault(); if (q) router.push(`/symbol/${q}`); }}>
+              <input id="search" type="search" placeholder="🔍 Mã (Enter để mở)" value={q} autoComplete="off"
+                aria-label="Tìm mã cổ phiếu" maxLength={10} style={{ width: 170 }}
+                onChange={(e) => setQ(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} />
+            </form>
             <select id="sector" className="btn" value={group.startsWith("icb:") ? group : ""}
               onChange={(e) => setGroup(e.target.value || "all")}>
               <option value="">Ngành ICB…</option>
