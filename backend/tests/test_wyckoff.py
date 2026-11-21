@@ -117,3 +117,16 @@ def test_utad_alert_only_for_watchlist_and_today():
     assert "UTAD" not in [x["kind"] for x in sig.build("DPG", r, None, False)]
     r["distrib"]["events"][0]["d"] = "2020-01-01"
     assert "UTAD" not in [x["kind"] for x in sig.build("DPG", r, None, True)]
+
+
+def test_classify_variant_and_phase():
+    from app.core.wyckoff import classify
+    s = analyse(load("DPG"), IDX)["schema"]
+    assert s["phase"] == "D" and s["variant"] in ("acc1", "acc2")
+    assert analyse(load("VNINDEX"))["schema"]["title"].startswith("Đang thủng hỗ trợ")
+    base = dict(tag="B/C", events=[dict(k="SC"), dict(k="AR"), dict(k="ST")], distrib=None)
+    assert classify(base)["variant"] == "acc" and classify(base)["phase"] == "B"          # Pha B: chưa rõ mẫu
+    base["events"].append(dict(k="Spring"))
+    assert classify(base)["variant"] == "acc1" and classify(base)["phase"] == "C"
+    d = dict(base, distrib=dict(tag="SOW", events=[dict(k="BC"), dict(k="AR"), dict(k="SOW")]))
+    assert (classify(d)["variant"], classify(d)["phase"]) == ("dist2", "D")

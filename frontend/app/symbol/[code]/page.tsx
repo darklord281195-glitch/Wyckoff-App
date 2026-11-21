@@ -123,7 +123,14 @@ export default function SymbolPage({ params }: { params: Promise<{ code: string 
       )}
       <section className="card">
         <h2>Sơ đồ mẫu Wyckoff</h2>
-        <WyckoffSchematic />
+        {a?.schema && (
+          <p style={{ marginTop: 0 }}>
+            <b>{d.sym}</b> đang giống: <b style={{ color: "var(--accent)" }}>{a.schema.title}</b>
+            {a.schema.phase && <> · <b>Pha {a.schema.phase}</b></>}
+            <br /><span className="muted">{a.schema.note}</span>
+          </p>
+        )}
+        <WyckoffSchematic key={d.sym} variant={a?.schema?.variant} phase={a?.schema?.phase} />
       </section>
       <Link href="/" className="muted">← Về tổng quan</Link>
     </>

@@ -17,13 +17,16 @@ export const WYCKOFF_NOTES: Record<string, Note> = {
   ST: { name: "Secondary Test – Kiểm tra lại",
     what: "Giá quay về gần đáy SC để kiểm tra lượng cung còn lại. Đáy ST cao hơn hoặc ngang SC là tốt.",
     vol: "KL thấp hơn hẳn SC: cung đã cạn.", act: "Chưa mua. KL càng thấp thì vùng tích lũy càng đáng tin." },
-  Spring: { name: "Spring – Rũ bỏ (Pha C)",
+  Spring: { name: "Spring – Rũ bỏ (Pha C, mẫu 1)",
     what: "Giá thủng đáy vùng rồi nhanh chóng đóng cửa trở lại bên trong, quét sạch lệnh cắt lỗ cuối cùng. Phép thử cuối trước khi tăng.",
     vol: "KL thấp là Spring đẹp. KL lớn mà không lấy lại được đáy thì có thể là gãy thật.",
     act: "Chỉ thăm dò, tối đa 1/3 tỷ trọng, cắt lỗ dưới đáy Spring. Backtest: Spring chưa xác nhận lỗ nhiều." },
   Test: { name: "Test – Kiểm tra Spring",
     what: "Giá lùi lại gần đáy Spring nhưng không thủng, xác nhận cung đã hết.",
     vol: "KL thấp hơn Spring.", act: "Có thể tăng tỷ trọng nhẹ nếu giữ được đáy." },
+  "Đáy nâng": { name: "Đáy nâng – Pha C của mẫu 2 (không Spring)",
+    what: "Nhịp giảm cuối dừng TRÊN đáy SC, không cần rũ bỏ: cầu đã đủ mạnh. Gặp thường xuyên hơn Spring.",
+    vol: "KL thấp, biên độ hẹp.", act: "Tương đương Test sau Spring: có thể thăm dò nhỏ, xác nhận khi có SOS." },
   SOS: { name: "Sign of Strength – Dấu hiệu sức mạnh (Pha D)",
     what: "Phiên tăng mạnh vượt trần AR: cầu đã chiếm ưu thế, giá chuẩn bị rời vùng.",
     vol: "KL lớn (app yêu cầu ≥ 1,5 lần TB20), biên độ rộng, đóng cửa gần đỉnh.",
@@ -41,7 +44,7 @@ export const WYCKOFF_NOTES: Record<string, Note> = {
 };
 WYCKOFF_NOTES["LPS?"] = WYCKOFF_NOTES.LPS;
 
-/** Ý nghĩa các mốc phân phối (app chưa tự dò phân phối; dùng để nhận biết khi nào nên thoát lệnh đang giữ). */
+/** Ý nghĩa các mốc phân phối (dùng để nhận biết khi nào nên thoát lệnh đang giữ). */
 export const DIST_NOTES: Record<string, Note> = {
   PSY: { name: "Preliminary Supply – Cung sơ bộ",
     what: "Lực bán lớn đầu tiên sau đợt tăng dài; đà tăng chậm lại nhưng chưa dừng.",
@@ -56,9 +59,12 @@ export const DIST_NOTES: Record<string, Note> = {
   ST: { name: "Secondary Test – Kiểm tra lại đỉnh",
     what: "Giá hồi lên gần đỉnh BC để kiểm tra lượng cầu còn lại. Không vượt được BC là cầu đã yếu.",
     vol: "KL thấp hơn BC; KL thấp mà giá không lên là cầu cạn.", act: "Cơ hội bán phần còn lại ở giá tốt." },
-  UTAD: { name: "Upthrust After Distribution – Kéo vượt đỉnh giả (Pha C)",
+  UTAD: { name: "Upthrust After Distribution – Kéo vượt đỉnh giả (Pha C, mẫu 1)",
     what: "Giá vượt đỉnh vùng rồi nhanh chóng rơi lại vào trong, bẫy người mua phá đỉnh. Ngược với Spring.",
-    vol: "KL lớn khi vượt đỉnh nhưng giá đóng cửa yếu.", act: "Không mua phá đỉnh. Người đang giữ: bán." },
+    vol: "KL lớn khi vượt đỉnh nhưng giá đóng cửa yếu.", act: "Không mua phá đỉnh. Người đang giữ: siết cắt lỗ hoặc bán." },
+  "Đỉnh hạ": { name: "Đỉnh hạ – Pha C của mẫu 2 (không UTAD)",
+    what: "Nhịp hồi cuối dừng DƯỚI đỉnh BC: cầu đã yếu tới mức không kéo nổi lên đỉnh cũ.",
+    vol: "KL hồi thấp.", act: "Người đang giữ: bán dần. Không mua." },
   SOW: { name: "Sign of Weakness – Dấu hiệu suy yếu (Pha D)",
     what: "Phiên giảm mạnh thủng đáy AR: cung đã áp đảo, giá chuẩn bị rời vùng đi xuống.",
     vol: "KL lớn, biên độ rộng, đóng cửa gần đáy phiên.", act: "Thoát hết. Không bắt đáy." },
@@ -73,10 +79,11 @@ export const DIST_NOTES: Record<string, Note> = {
 type Pt = { k: string; x: number; y: number; below?: boolean };
 type Schema = { notes: Record<string, Note>; pts: Pt[]; path: string; top: [number, string]; bottom: [number, string];
   zone: [number, number]; label: string };
+type Variant = "acc1" | "acc2" | "dist1" | "dist2";
 
 // toạ độ SVG; y càng lớn giá càng thấp. Phân phối là ảnh lật dọc của tích lũy (y -> 310 - y).
-const ACC: Schema = {
-  notes: WYCKOFF_NOTES, label: "tích lũy", zone: [135, 685],
+const ACC1: Schema = {
+  notes: WYCKOFF_NOTES, label: "tích lũy mẫu 1", zone: [135, 685],
   top: [110, "Trần (đỉnh AR)"], bottom: [250, "Hỗ trợ (đáy SC)"],
   pts: [
     { k: "PS", x: 70, y: 175, below: true }, { k: "SC", x: 135, y: 250, below: true }, { k: "AR", x: 205, y: 110 },
@@ -87,36 +94,54 @@ const ACC: Schema = {
   path: "M10,40 L70,175 L100,150 L135,250 L205,110 L285,238 L345,135 L405,226 L465,125 L545,278 L575,215 " +
     "L605,246 L685,82 L745,128 L805,62 L830,85 L865,32",
 };
-const flip = (s: string) => s.replace(/(\d+),(\d+)/g, (_, x, y) => `${x},${310 - +y}`);
-const DIST: Schema = {
-  notes: DIST_NOTES, label: "phân phối", zone: [135, 685],
-  top: [60, "Kháng cự (đỉnh BC)"], bottom: [200, "Hỗ trợ (đáy AR)"],
-  pts: ACC.pts.map((p, i) => ({
-    k: ["PSY", "BC", "AR", "ST", "UTAD", "", "SOW", "LPSY", "Markdown"][i], x: p.x, y: 310 - p.y, below: !p.below,
-  })).filter((p) => p.k),
-  path: flip(ACC.path),
+// mẫu 2: Pha C là đáy nâng trên hỗ trợ, không có Spring/Test
+const ACC2: Schema = {
+  ...ACC1, label: "tích lũy mẫu 2",
+  pts: [...ACC1.pts.filter((p) => p.k !== "Spring" && p.k !== "Test"), { k: "Đáy nâng", x: 560, y: 222, below: true }]
+    .sort((a, b) => a.x - b.x),
+  path: ACC1.path.replace("L545,278 L575,215 L605,246", "L560,222 L620,170"),
 };
+const flip = (s: string) => s.replace(/(\d+),(\d+)/g, (_, x, y) => `${x},${310 - +y}`);
+const ACC_TO_DIST: Record<string, string> = { PS: "PSY", SC: "BC", AR: "AR", ST: "ST", Spring: "UTAD", Test: "",
+  "Đáy nâng": "Đỉnh hạ", SOS: "SOW", LPS: "LPSY", Markup: "Markdown" };
+const toDist = (a: Schema, label: string): Schema => ({
+  notes: DIST_NOTES, label, zone: a.zone, top: [60, "Kháng cự (đỉnh BC)"], bottom: [200, "Hỗ trợ (đáy AR)"],
+  pts: a.pts.map((p) => ({ k: ACC_TO_DIST[p.k], x: p.x, y: 310 - p.y, below: !p.below })).filter((p) => p.k),
+  path: flip(a.path),
+});
+const SCHEMAS: Record<Variant, Schema> = {
+  acc1: ACC1, acc2: ACC2, dist1: toDist(ACC1, "phân phối mẫu 1"), dist2: toDist(ACC2, "phân phối mẫu 2"),
+};
+const TABS: [Variant, string][] = [["acc1", "Tích lũy 1 (Spring)"], ["acc2", "Tích lũy 2 (đáy nâng)"],
+  ["dist1", "Phân phối 1 (UTAD)"], ["dist2", "Phân phối 2 (đỉnh hạ)"]];
 const PHASES = [["A", 20, 245], ["B", 245, 505], ["C", 505, 635], ["D", 635, 790], ["E", 790, 890]] as const;
 
-/** Sơ đồ mẫu Wyckoff (tích lũy / phân phối); rê chuột, chạm hoặc Tab vào từng mốc để xem ý nghĩa. */
-export default function WyckoffSchematic() {
-  const [dist, setDist] = useState(false);
+/** Sơ đồ mẫu Wyckoff 4 biến thể; rê chuột, chạm hoặc Tab vào từng mốc để xem ý nghĩa.
+ *  variant/phase: mẫu và pha của mã (backend classify); "acc" = tích lũy chưa rõ mẫu 1 hay 2. */
+export default function WyckoffSchematic({ variant, phase }: { variant?: string | null; phase?: string | null }) {
+  const [v, setV] = useState<Variant>(variant === "acc" ? "acc1" : (variant as Variant) || "acc1");
   const [on, setOn] = useState<string | null>(null);
-  const S = dist ? DIST : ACC;
+  const S = SCHEMAS[v];
   const p = S.pts.find((x) => x.k === on);
   const n = on ? S.notes[on] : null;
+  const mine = (t: Variant) => t === variant || (variant === "acc" && t.startsWith("acc"));   // mẫu của mã này
+  const here = mine(v) ? PHASES.find(([ph]) => ph === phase) : undefined;
 
   return (
     <div style={{ position: "relative" }}>
       <div className="tabs" style={{ marginBottom: 8 }}>
-        <button className={dist ? "" : "on"} onClick={() => { setDist(false); setOn(null); }}>Tích lũy (tìm điểm mua)</button>
-        <button className={dist ? "on" : ""} onClick={() => { setDist(true); setOn(null); }}>Phân phối (tìm điểm bán)</button>
+        {TABS.map(([t, label]) => (
+          <button key={t} className={v === t ? "on" : ""} onClick={() => { setV(t); setOn(null); }}>
+            {label}{mine(t) ? " ●" : ""}</button>
+        ))}
       </div>
       <svg viewBox="0 0 900 310" role="img" aria-label={`Sơ đồ mẫu ${S.label} Wyckoff`} style={{ width: "100%", height: "auto", display: "block" }}>
+        {here && <rect x={here[1]} y={0} width={here[2] - here[1]} height={310} fill="var(--accent)" opacity={0.08} />}
         {PHASES.map(([ph, x0, x1], i) => (
           <g key={ph}>
             {i > 0 && <line x1={x0} x2={x0} y1={14} y2={300} stroke="var(--grid)" strokeDasharray="4 4" />}
-            <text x={(x0 + x1) / 2} y={14} textAnchor="middle" fontSize={13} fontWeight={600} fill="var(--muted)">Pha {ph}</text>
+            <text x={(x0 + x1) / 2} y={14} textAnchor="middle" fontSize={13} fontWeight={here?.[0] === ph ? 800 : 600}
+              fill={here?.[0] === ph ? "var(--accent)" : "var(--muted)"}>Pha {ph}{here?.[0] === ph ? " ◀ đang ở đây" : ""}</text>
           </g>
         ))}
         <rect x={S.zone[0]} y={S.top[0]} width={S.zone[1] - S.zone[0]} height={S.bottom[0] - S.top[0]} fill="var(--accent-soft)" />
@@ -149,8 +174,7 @@ export default function WyckoffSchematic() {
         </div>
       )}
       <p className="muted" style={{ margin: "6px 0 0", fontSize: 12.5 }}>
-        Rê chuột (hoặc chạm) vào từng mốc để xem ý nghĩa. Sơ đồ là mẫu lý tưởng; vùng thật thường không đủ mọi mốc.
-        {dist && " App hiện chỉ tự dò tích lũy; mẫu phân phối dùng để tự nhận biết khi nào nên thoát lệnh đang giữ."}
+        Rê chuột (hoặc chạm) vào từng mốc để xem ý nghĩa. ● = mẫu mã này đang giống. Sơ đồ là mẫu lý tưởng; vùng thật thường không đủ mọi mốc.
       </p>
     </div>
   );

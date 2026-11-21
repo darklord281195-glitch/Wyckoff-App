@@ -107,6 +107,49 @@ def distribution(R, lookback=190):
     return dict(tag=tag, top=top, bot=bot, start=R[bc]["d"], events=events)
 
 
+NAMES = {"acc1": "Tích lũy mẫu 1 (có Spring)", "acc2": "Tích lũy mẫu 2 (không Spring, đáy nâng)",
+         "dist1": "Phân phối mẫu 1 (có UTAD)", "dist2": "Phân phối mẫu 2 (không UTAD, đỉnh hạ)"}
+ACC_NOTE = {"A": "Pha A: vừa dừng giảm, chưa có ST. Chưa mua.",
+            "B": "Pha B: đang tích lũy. Chờ Spring hoặc đáy nâng, rồi SOS vượt trần.",
+            "C": "Pha C: vừa có Spring. Chỉ thăm dò nhỏ, chờ Test giữ đáy và SOS.",
+            "D": "Pha D: đã có sức mạnh. Vùng mua LPS/Backup theo kế hoạch.",
+            "E": "Pha E: đã tăng xa vùng. Không mua đuổi, chờ nền mới."}
+
+
+def classify(r):
+    """Mã đang giống biến thể sơ đồ nào: dict(variant acc1/acc2/dist1/dist2/None, phase A–E/None, title, note)."""
+    dd = r.get("distrib")
+    if dd and dd["tag"] != "Pha B?":
+        v = "dist1" if any(e["k"] == "UTAD" for e in dd["events"]) else "dist2"
+        ph = {"UTAD": "C", "SOW": "D", "LPSY": "D", "Markdown": "E"}[dd["tag"]]
+        note = {"C": "Pha C: vừa vượt đỉnh rồi rơi lại (UTAD). Không mua phá đỉnh; đang giữ thì siết cắt lỗ.",
+                "D": "Pha D: đã thủng đáy vùng (SOW), cung áp đảo. Không bắt đáy.",
+                "E": "Pha E: đang giảm giá (Markdown). Đứng ngoài, chờ vùng tích lũy mới."}[ph]
+        return dict(variant=v, phase=ph, title=NAMES[v], note=note)
+    tag = r["tag"]
+    if tag == "mới tạo đáy":
+        return dict(variant=None, phase="A", title="Vừa tạo đáy mới", note="Chưa thành vùng: chờ AR rồi ST.")
+    ks = [e["k"] for e in r["events"]]
+    v = "acc1" if "Spring" in ks else "acc2"
+    if tag == "SOS hỏng":
+        return dict(variant=v, phase=None, title=NAMES[v] + " – thất bại",
+                    note="Đã vượt trần rồi rơi sâu lại vào vùng: cấu trúc hỏng, có thể chuyển thành phân phối.")
+    if tag == "dưới hỗ trợ":
+        return dict(variant="acc1", phase="C", title="Đang thủng hỗ trợ: Spring hoặc gãy thật",
+                    note="Thành Spring (mẫu 1) nếu đóng cửa lại trên đáy SC với KL thấp; KL lớn mà không lấy lại "
+                         "được đáy là gãy thật, giá có thể giảm tiếp.")
+    ph = ("D" if tag.startswith("D") else "E" if tag == "E?" else "C" if "Spring" in ks
+          else "B" if "ST" in ks else "A")
+    note = ACC_NOTE[ph]
+    if ph in ("A", "B"):     # Pha C chưa tới: chưa biết có Spring (mẫu 1) hay đáy nâng (mẫu 2)
+        v, title = "acc", "Tích lũy – chưa rõ mẫu 1 hay 2 (Pha C sẽ quyết định)"
+    else:
+        title = NAMES[v]
+    if dd:   # vùng đi ngang ngay sau đợt tăng ≥ 30%: đọc theo tích lũy hay phân phối đều được
+        note += " Lưu ý: vùng này nằm ngay sau một đợt tăng mạnh (BC), cũng có thể là phân phối; SOS hay SOW sẽ cho biết."
+    return dict(variant=v, phase=ph, title=title, note=note)
+
+
 def analyse(R, IDX=None, floor=None):
     """Trả dict kết quả. R phải là dữ liệu đã cắt ~420 ngày (dùng trim()).
     floor = sàn niêm yết (HOSE/HNX/UPCOM) để làm tròn giá kế hoạch theo bước giá; None = không làm tròn."""
@@ -130,7 +173,9 @@ def analyse(R, IDX=None, floor=None):
 
     sc, ar, mlo_i = find_range(R)
     if ar is None or ar <= sc + 2:
-        return dict(base, tag="mới tạo đáy", stage="new", events=[], range=None, levels={})
+        out = dict(base, tag="mới tạo đáy", stage="new", events=[], range=None, levels={})
+        out["schema"] = classify(out)
+        return out
 
     dd = base["distrib"]
     if dd and dd["events"][-1]["d"] < R[sc]["d"]:
@@ -208,4 +253,5 @@ def analyse(R, IDX=None, floor=None):
                events=events, levels=levels)
     out["plan"] = make_plan(R, out, dict(sc=sc, ar=ar, sos=sos, pk=pk, lps=lps, t=t), floor)
     out["supply"] = supply_sign(R)
+    out["schema"] = classify(out)
     return out

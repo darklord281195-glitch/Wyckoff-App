@@ -21,6 +21,8 @@ export type Analysis = {
   events: WEvent[]; levels: Levels | Record<string, never>;
   /** vùng phân phối gần nhất (BC–AR) và các mốc BC/AR/ST/UTAD/SOW/LPSY; null nếu không có */
   distrib?: { tag: string; top: number; bot: number; start: string; events: WEvent[] } | null;
+  /** biến thể sơ đồ mã đang giống: acc1/acc2/dist1/dist2, "acc" = tích lũy chưa rõ mẫu */
+  schema?: { variant: string | null; phase: string | null; title: string; note: string };
 };
 export type Row = {
   sym: string; groups: string[]; floor: string | null; name: string | null; tag: string; stage: string; c: number; chg: number; liq: number;
