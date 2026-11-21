@@ -130,3 +130,13 @@ def test_classify_variant_and_phase():
     assert classify(base)["variant"] == "acc1" and classify(base)["phase"] == "C"
     d = dict(base, distrib=dict(tag="SOW", events=[dict(k="BC"), dict(k="AR"), dict(k="SOW")]))
     assert (classify(d)["variant"], classify(d)["phase"]) == ("dist2", "D")
+
+
+def test_classify_reacc_redist():
+    from app.core.wyckoff import classify
+    ev = [dict(k="SC", vx=1), dict(k="AR", vx=1), dict(k="ST", vx=1)]
+    assert classify(dict(tag="B/C", events=ev, weak_drop=True, drop=12))["variant"] == "reacc"
+    br = dict(tag="dưới hỗ trợ", events=ev + [dict(k="Spring", vx=2.0)], ma50=10, ma200=12)
+    assert (classify(br)["variant"], classify(br)["phase"]) == ("redist", "D")
+    br["events"][-1]["vx"] = 0.8                        # KL thấp: vẫn có thể là Spring
+    assert classify(br)["variant"] == "acc1"

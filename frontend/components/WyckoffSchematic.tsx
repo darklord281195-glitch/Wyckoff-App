@@ -79,7 +79,7 @@ export const DIST_NOTES: Record<string, Note> = {
 type Pt = { k: string; x: number; y: number; below?: boolean };
 type Schema = { notes: Record<string, Note>; pts: Pt[]; path: string; top: [number, string]; bottom: [number, string];
   zone: [number, number]; label: string };
-type Variant = "acc1" | "acc2" | "dist1" | "dist2";
+type Variant = "acc1" | "acc2" | "dist1" | "dist2" | "reacc" | "redist";
 
 // toạ độ SVG; y càng lớn giá càng thấp. Phân phối là ảnh lật dọc của tích lũy (y -> 310 - y).
 const ACC1: Schema = {
@@ -109,11 +109,51 @@ const toDist = (a: Schema, label: string): Schema => ({
   pts: a.pts.map((p) => ({ k: ACC_TO_DIST[p.k], x: p.x, y: 310 - p.y, below: !p.below })).filter((p) => p.k),
   path: flip(a.path),
 });
+// tái tích lũy: đi lên từ trái, nghỉ trong vùng (nhịp điều chỉnh nông), rồi tăng tiếp
+const REACC: Schema = {
+  label: "tái tích lũy", zone: [135, 685], top: [110, "Trần (đỉnh nhịp tăng trước)"], bottom: [200, "Hỗ trợ (đáy AR)"],
+  notes: { ...WYCKOFF_NOTES,
+    "Đỉnh": { name: "Đỉnh nhịp tăng – mở đầu tái tích lũy (Pha A)",
+      what: "Đà tăng trước dừng lại, thường kèm KL lớn. Không phải đỉnh xu hướng: giá chỉ nghỉ để hấp thụ lượng hàng chốt lời.",
+      vol: "KL lớn rồi giảm dần.", act: "Đang giữ: có thể chốt một phần. Chưa mua thêm." },
+    AR: { name: "Automatic Reaction – Nhịp giảm tự động",
+      what: "Nhịp điều chỉnh đầu tiên sau đỉnh; đáy AR là hỗ trợ của vùng. Ở tái tích lũy, nhịp này thường nông (< 20%).",
+      vol: "KL giảm khi giá giảm là tốt (chỉ chốt lời, không phải bán tháo).", act: "Đánh dấu đáy AR làm hỗ trợ." },
+    ST: { name: "Secondary Test – Kiểm tra lại đỉnh",
+      what: "Giá hồi lên gần trần vùng; chưa vượt được thì tiếp tục đi ngang (Pha B).",
+      vol: "KL thấp hơn lúc tạo đỉnh.", act: "Chưa mua. Chờ Spring/Shakeout hoặc SOS." } },
+  pts: [
+    { k: "Đỉnh", x: 135, y: 110 }, { k: "AR", x: 205, y: 200, below: true }, { k: "ST", x: 285, y: 118 },
+    { k: "Spring", x: 545, y: 228, below: true }, { k: "Test", x: 605, y: 196, below: true }, { k: "SOS", x: 685, y: 80 },
+    { k: "LPS", x: 745, y: 118, below: true }, { k: "Markup", x: 865, y: 34 },
+  ],
+  path: "M10,290 L60,200 L85,215 L135,110 L205,200 L285,118 L345,190 L405,125 L465,195 L545,228 L575,170 " +
+    "L605,196 L685,80 L745,118 L805,55 L830,75 L865,34",
+};
+// tái phân phối: ảnh lật của tái tích lũy - đi xuống từ trái, nghỉ, rồi giảm tiếp
+const REDIST: Schema = {
+  label: "tái phân phối", zone: [135, 685], top: [110, "Kháng cự (đỉnh AR)"], bottom: [200, "Hỗ trợ (đáy nhịp giảm trước)"],
+  notes: { ...DIST_NOTES,
+    "Đáy": { name: "Đáy nhịp giảm – mở đầu tái phân phối (Pha A)",
+      what: "Đà giảm trước tạm dừng. Không phải đáy xu hướng: giá chỉ nghỉ trước khi giảm tiếp.",
+      vol: "KL lớn rồi giảm dần.", act: "Không bắt đáy. Chờ xem vùng là tích lũy hay tái phân phối." },
+    AR: { name: "Automatic Rally – Nhịp hồi tự động",
+      what: "Nhịp hồi đầu tiên sau đáy; đỉnh AR là kháng cự của vùng. Ở tái phân phối nhịp hồi yếu, KL thấp.",
+      vol: "KL thấp khi hồi: cầu yếu.", act: "Không mua theo nhịp hồi." },
+    ST: { name: "Secondary Test – Kiểm tra lại đáy",
+      what: "Giá quay về gần đáy vùng; KL không giảm (cung vẫn còn) là dấu hiệu tái phân phối.",
+      vol: "KL cao khi về đáy là xấu.", act: "Không mua." } },
+  pts: REACC.pts.map((p) => ({ k: { "Đỉnh": "Đáy", AR: "AR", ST: "ST", Spring: "UTAD", Test: "", SOS: "SOW", LPS: "LPSY",
+    Markup: "Markdown" }[p.k] ?? "", x: p.x, y: 310 - p.y, below: !p.below })).filter((p) => p.k),
+  path: flip(REACC.path),
+};
 const SCHEMAS: Record<Variant, Schema> = {
   acc1: ACC1, acc2: ACC2, dist1: toDist(ACC1, "phân phối mẫu 1"), dist2: toDist(ACC2, "phân phối mẫu 2"),
+  reacc: REACC, redist: REDIST,
 };
 const TABS: [Variant, string][] = [["acc1", "Tích lũy 1 (Spring)"], ["acc2", "Tích lũy 2 (đáy nâng)"],
-  ["dist1", "Phân phối 1 (UTAD)"], ["dist2", "Phân phối 2 (đỉnh hạ)"]];
+  ["dist1", "Phân phối 1 (UTAD)"], ["dist2", "Phân phối 2 (đỉnh hạ)"],
+  ["reacc", "Tái tích lũy (giữa xu hướng tăng)"], ["redist", "Tái phân phối (giữa xu hướng giảm)"]];
 const PHASES = [["A", 20, 245], ["B", 245, 505], ["C", 505, 635], ["D", 635, 790], ["E", 790, 890]] as const;
 
 /** Sơ đồ mẫu Wyckoff 4 biến thể; rê chuột, chạm hoặc Tab vào từng mốc để xem ý nghĩa.

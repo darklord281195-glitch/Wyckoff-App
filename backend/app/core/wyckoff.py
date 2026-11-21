@@ -108,7 +108,8 @@ def distribution(R, lookback=190):
 
 
 NAMES = {"acc1": "Tích lũy mẫu 1 (có Spring)", "acc2": "Tích lũy mẫu 2 (không Spring, đáy nâng)",
-         "dist1": "Phân phối mẫu 1 (có UTAD)", "dist2": "Phân phối mẫu 2 (không UTAD, đỉnh hạ)"}
+         "dist1": "Phân phối mẫu 1 (có UTAD)", "dist2": "Phân phối mẫu 2 (không UTAD, đỉnh hạ)",
+         "reacc": "Tái tích lũy (nghỉ giữa xu hướng tăng)", "redist": "Tái phân phối (nghỉ giữa xu hướng giảm)"}
 ACC_NOTE = {"A": "Pha A: vừa dừng giảm, chưa có ST. Chưa mua.",
             "B": "Pha B: đang tích lũy. Chờ Spring hoặc đáy nâng, rồi SOS vượt trần.",
             "C": "Pha C: vừa có Spring. Chỉ thăm dò nhỏ, chờ Test giữ đáy và SOS.",
@@ -134,6 +135,13 @@ def classify(r):
     if tag == "SOS hỏng":
         return dict(variant=v, phase=None, title=NAMES[v] + " – thất bại",
                     note="Đã vượt trần rồi rơi sâu lại vào vùng: cấu trúc hỏng, có thể chuyển thành phân phối.")
+    down = r.get("ma200") and r["ma50"] < r["ma200"]
+    brk = next((e for e in reversed(r["events"]) if e["k"] == "Spring"), None)
+    if tag == "dưới hỗ trợ" and down and brk and (brk["vx"] or 0) >= 1.5:
+        # thủng đáy với KL lớn trong xu hướng giảm: SOW của vùng tái phân phối, không phải Spring
+        return dict(variant="redist", phase="D", title=NAMES["redist"],
+                    note="Pha D: thủng đáy vùng với KL lớn (≥ 1,5 lần TB20) khi MA50 < MA200: cung áp đảo, "
+                         "xu hướng giảm đang tiếp diễn. Không bắt đáy, chờ vùng tích lũy mới.")
     if tag == "dưới hỗ trợ":
         return dict(variant="acc1", phase="C", title="Đang thủng hỗ trợ: Spring hoặc gãy thật",
                     note="Thành Spring (mẫu 1) nếu đóng cửa lại trên đáy SC với KL thấp; KL lớn mà không lấy lại "
@@ -141,6 +149,10 @@ def classify(r):
     ph = ("D" if tag.startswith("D") else "E" if tag == "E?" else "C" if "Spring" in ks
           else "B" if "ST" in ks else "A")
     note = ACC_NOTE[ph]
+    if r.get("weak_drop"):   # vùng sau nhịp giảm < 20%: nghỉ giữa xu hướng tăng
+        return dict(variant="reacc", phase=ph, title=NAMES["reacc"],
+                    note=f"Vùng đi ngang sau nhịp điều chỉnh nông ({r.get('drop')}% từ đỉnh). {note} "
+                         "App chưa báo mua với tái tích lũy (chưa kiểm chứng bằng backtest).")
     if ph in ("A", "B"):     # Pha C chưa tới: chưa biết có Spring (mẫu 1) hay đáy nâng (mẫu 2)
         v, title = "acc", "Tích lũy – chưa rõ mẫu 1 hay 2 (Pha C sẽ quyết định)"
     else:

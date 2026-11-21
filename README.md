@@ -85,6 +85,12 @@ Trang chi tiết mã có thêm **máy tính khối lượng**: nhập vốn và 
 
 Mỗi cảnh báo gửi tối đa 1 lần/ngày. Đây chỉ là **chú ý**: luật bán vẫn theo giá đóng cửa, vì thủng cắt lỗ trong phiên rồi đóng cửa lại trên là chuyện thường.
 
+**Mã đang giống sơ đồ nào** (`wyckoff.classify`), hiện trên trang mã và tô sáng pha trên sơ đồ mẫu:
+- Tích lũy mẫu 1 (có Spring) / mẫu 2 (đáy nâng). Ở Pha A–B ghi "chưa rõ mẫu" vì Pha C mới quyết định.
+- Phân phối mẫu 1 (có UTAD) / mẫu 2 (đỉnh hạ).
+- Tái tích lũy: vùng sau nhịp điều chỉnh < 20% (nghỉ giữa xu hướng tăng). App chưa báo mua loại này.
+- Tái phân phối: thủng đáy vùng với KL ≥ 1,5 lần TB20 khi MA50 < MA200 (giảm tiếp, không phải Spring).
+
 Trang mã có nút **Ngày / Tuần** trên biểu đồ: khung tuần (~3 năm) để xem bối cảnh; mốc Wyckoff vẫn tính theo ngày.
 
 ## Danh mục đang giữ
