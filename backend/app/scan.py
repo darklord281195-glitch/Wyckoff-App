@@ -15,7 +15,7 @@ from .core.wyckoff import analyse, trim
 from .core.market import traffic_light
 from .core import signals as sig
 from .universe import universe, watchlist, refresh_listing, listing, INDEX
-from . import notify, charts
+from . import notify, charts, backup
 
 LIGHT_ICON = {"green": "🟢", "yellow": "🟡", "red": "🔴", "?": "⚪"}
 
@@ -90,17 +90,18 @@ def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log
     market = traffic_light(idx_res, breadth)
     conn.execute("INSERT OR REPLACE INTO scan_results(date,sym,stage,data) VALUES (?,?,?,?)",
                  (scan_date, INDEX, idx_res and idx_res["tag"], json.dumps(idx_res, ensure_ascii=False)))
-    # backtest 2019–2026: tín hiệu mua lúc đèn đỏ có R trung bình âm -> không báo mua, chỉ giữ cảnh báo và danh mục
-    hidden = sorted({x["sym"] for x in all_sigs if x["kind"] in sig.BUY}) if market["light"] == "red" else []
+    # backtest: các loại tín hiệu mua có R trung bình âm theo màu đèn -> không báo mua, chỉ giữ cảnh báo và danh mục
+    kinds = sig.HIDE.get(market["light"], ())
+    hidden = sorted({x["sym"] for x in all_sigs if x["kind"] in kinds})
     if hidden:
         conn.execute(f"DELETE FROM signals WHERE date=? AND sym IN ({','.join('?' * len(hidden))}) "
-                     f"AND kind IN ({','.join('?' * len(sig.BUY))})", (scan_date, *hidden, *sig.BUY))
-        all_sigs = [x for x in all_sigs if x["kind"] not in sig.BUY]
+                     f"AND kind IN ({','.join('?' * len(kinds))})", (scan_date, *hidden, *kinds))
+        all_sigs = [x for x in all_sigs if x["kind"] not in kinds]
     conn.commit()
     log.info("Phân tích %d mã, bỏ qua %d mã (dưới 120 phiên hoặc không giao dịch phiên %s)",
              len(results), skipped, scan_date)
 
-    msg = format_message(scan_date, market, all_sigs, results, errors, hidden)
+    msg = format_message(scan_date, market, all_sigs, results, errors, hidden, kinds)
     log.info("\n%s", msg)
     if dry_run or not notify.enabled():
         if not dry_run: log.warning("Chưa cấu hình TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID trong .env - không gửi.")
@@ -121,14 +122,16 @@ def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log
     return dict(date=scan_date, signals=all_sigs, n=len(results), errors=errors, message=msg)
 
 
-def format_message(scan_date, market, sigs, results, errors, hidden=()) -> str:
+def format_message(scan_date, market, sigs, results, errors, hidden=(), kinds=()) -> str:
     c = market.get("c")
     head = (f"📊 Wyckoff {fmt.date_full(scan_date)} · VNINDEX {fmt.num(c, 2)} ({fmt.pct(market.get('chg') or 0, 2)}) "
             f"{LIGHT_ICON[market['light']]}\n{market['text']}") if c else "📊 Wyckoff"
     lines = [head]
     if hidden:
-        lines.append(f"\n🔴 Đèn đỏ: tạm ẩn tín hiệu mua của {', '.join(hidden)} "
-                     "(backtest: mua lúc đèn đỏ có kỳ vọng âm). Xem vùng vào trên web khi đèn chuyển vàng/xanh.")
+        what = "tín hiệu mua" if set(kinds) == set(sig.BUY) else "tín hiệu " + "/".join(kinds)
+        lines.append(f"\n{LIGHT_ICON[market['light']]} Đèn {'đỏ' if market['light'] == 'red' else 'vàng'}: "
+                     f"tạm ẩn {what} của {', '.join(hidden)} (backtest: kỳ vọng âm ở màu đèn này). "
+                     "Xem vùng vào trên web khi đèn chuyển xanh.")
     groups = {}
     for x in sorted(sigs, key=lambda x: (x["prio"], -(x["rs20"] or -99))):
         groups.setdefault(x["kind"], []).append(x)
@@ -136,7 +139,8 @@ def format_message(scan_date, market, sigs, results, errors, hidden=()) -> str:
               "Chốt lời": "Danh mục – chốt lời", "Dời cắt lỗ": "Danh mục – dời cắt lỗ",
               "LPS": "Đáng chú ý – đang ở LPS", "SOS mới": "SOS mới (chờ LPS/Backup)", "Spring": "Spring/ST hôm nay",
               "Tiềm năng sớm": "Tiềm năng sớm (sắp phá trần)", "D sớm": "Mới vào Pha D sớm",
-              "Chốt lời?": "Cân nhắc chốt lời", "Rời Pha D": "Cảnh báo", "Gãy hỗ trợ": "Cảnh báo"}
+              "Chốt lời?": "Cân nhắc chốt lời", "Rời Pha D": "Cảnh báo", "Gãy hỗ trợ": "Cảnh báo",
+              "UTAD": "Dấu hiệu phân phối (mã đang giữ/theo dõi)"}
     for kind, xs in groups.items():
         lines.append(f"\n{sig.ICON[kind]} {titles[kind]}:")
         for x in xs:
@@ -170,6 +174,10 @@ def main():
     run(groups=a.groups.split(",") if a.groups else None,
         symbols=[s.strip().upper() for s in a.symbols.split(",")] if a.symbols else None,
         dry_run=a.dry_run, photos=not a.no_photo, refresh=not a.offline, log=log)
+    try:
+        log.info("Sao lưu danh mục: %s", backup.backup())
+    except Exception as e:                       # sao lưu lỗi không được làm hỏng lần quét
+        log.warning("Không sao lưu được danh mục: %s", e)
 
 
 if __name__ == "__main__":

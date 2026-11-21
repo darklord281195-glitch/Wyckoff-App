@@ -83,3 +83,37 @@ def test_rs_present():
 def test_vn_format():
     assert num(1688.79, 2) == "1.688,79"
     assert price(12.65) == "12.650"
+
+
+def _bars(closes, vols=None, hi=None):
+    """Nến giả: o=c trước, h/l ±1% (hi ghi đè giá cao), KL mặc định 1."""
+    out = []
+    for i, c in enumerate(closes):
+        h = (hi or {}).get(i, c * 1.01)
+        out.append(dict(d=f"2026-{1 + i // 28:02d}-{1 + i % 28:02d}" if i < 336 else f"2027-{1 + (i-336) // 28:02d}-{1 + (i-336) % 28:02d}",
+                        o=c, h=h, l=c * 0.99, c=c, v=(vols or {}).get(i, 1.0)))
+    return out
+
+
+def test_distribution_utad_then_sow():
+    from app.core.wyckoff import distribution
+    up = [10 + 10 * i / 99 for i in range(100)]                      # tăng 10 -> 20 (BC ở cuối)
+    rng = [18.5 + (i % 6) * 0.2 for i in range(40)]                  # đi ngang 18,5–19,5, đáy AR ~18,3
+    closes = up + rng + [19.6, 19.4] + [18.8] * 10
+    utad = len(up) + len(rng)                                        # vượt đỉnh 20,2 rồi đóng 19,6 < đỉnh
+    d = distribution(_bars(closes, hi={utad: 20.6}))
+    assert d and d["tag"] == "UTAD" and [e["k"] for e in d["events"]].count("UTAD") == 1
+    sow = len(closes)
+    closes += [17.0]                                                 # thủng đáy AR, KL x3
+    d = distribution(_bars(closes, vols={sow: 3.0}, hi={utad: 20.6}))
+    assert d["tag"] == "SOW" and d["events"][-1]["k"] == "SOW"
+    assert distribution(_bars(up + [x + 3 for x in rng])) is None    # vượt đỉnh đi tiếp: không phải phân phối
+
+
+def test_utad_alert_only_for_watchlist_and_today():
+    r = analyse(load("DPG"), IDX)
+    r["distrib"] = dict(top=40, events=[dict(k="UTAD", d=r["d"])])
+    assert "UTAD" in [x["kind"] for x in sig.build("DPG", r, None, True)]
+    assert "UTAD" not in [x["kind"] for x in sig.build("DPG", r, None, False)]
+    r["distrib"]["events"][0]["d"] = "2020-01-01"
+    assert "UTAD" not in [x["kind"] for x in sig.build("DPG", r, None, True)]

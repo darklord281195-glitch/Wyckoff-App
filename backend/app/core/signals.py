@@ -7,13 +7,16 @@ from .positions import simulate
 # thứ tự ưu tiên khi xếp hạng / chọn ảnh gửi Telegram (việc với danh mục đang giữ lên đầu)
 PRIORITY = {"Cắt lỗ": -4, "Hết thời gian": -3, "Chốt lời": -2, "Dời cắt lỗ": -1,
             "LPS": 0, "SOS mới": 1, "Spring": 2, "Tiềm năng sớm": 3, "D sớm": 4,
-            "Chốt lời?": 7, "Rời Pha D": 8, "Gãy hỗ trợ": 9}
+            "Chốt lời?": 7, "Rời Pha D": 8, "Gãy hỗ trợ": 9, "UTAD": 10}
 ICON = {"Cắt lỗ": "⛔", "Hết thời gian": "⏱", "Chốt lời": "💰", "Dời cắt lỗ": "🔼",
         "LPS": "✅", "SOS mới": "🚀", "Spring": "🌱", "Tiềm năng sớm": "🔭", "D sớm": "👀",
-        "Chốt lời?": "💰", "Rời Pha D": "⚠️", "Gãy hỗ trợ": "⛔"}
+        "Chốt lời?": "💰", "Rời Pha D": "⚠️", "Gãy hỗ trợ": "⛔", "UTAD": "🔻"}
 READY_MIN = 70        # điểm sẵn sàng tối thiểu để báo "Tiềm năng sớm"
 READY_BUY = 60        # điểm tối thiểu cho mọi tín hiệu mua: backtest 2019–2026 điểm < 60 có R TB −0,34 (Spring gần như đều < 60)
 BUY = ("LPS", "SOS mới", "Spring", "Tiềm năng sớm", "D sớm")
+# tín hiệu mua bị ẩn theo màu đèn. Chọn trên backtest 2019–2023, kiểm tra 2024–2026 (R TB):
+# đèn đỏ mọi loại âm; đèn vàng LPS −0,09/−0,21 và D sớm −0,10/−0,37, còn Tiềm năng sớm +0,45/+0,16.
+HIDE = {"red": BUY, "yellow": ("LPS", "D sớm")}
 
 
 def plan_text(p: dict | None) -> str:
@@ -73,6 +76,11 @@ def build(sym: str, r: dict, prev: dict | None, in_watchlist: bool) -> list[dict
         pstop = (prev.get("plan") or {}).get("stop") or (prev.get("levels") or {}).get("invalid")
         if pstop and r["c"] < pstop <= prev.get("c", 0):
             add("Gãy hỗ trợ", f"{sym} {_p(r['c'])} · thủng mốc cắt lỗ {_p(pstop)}")
+    # phân phối: chỉ UTAD có tác dụng trong kiểm chứng 2019–2026 (10 phiên sau kém TB 0,5–0,9 điểm %, yếu);
+    # SOW/LPSY không khác trung bình nên chỉ hiển thị trên web, không báo
+    dd = r.get("distrib") or {}
+    if in_watchlist and any(e["k"] == "UTAD" and e["d"] == today for e in dd.get("events", [])):
+        add("UTAD", f"{sym} {_p(r['c'])} · vượt đỉnh {_p(dd['top'])} rồi đóng cửa dưới: dấu hiệu phân phối, cân nhắc siết cắt lỗ")
     for s in out:
         s["prio"] = PRIORITY[s["kind"]]; s["rs20"] = r.get("rs20")
     return out

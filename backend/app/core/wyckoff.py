@@ -57,6 +57,56 @@ def rs_vs_index(R, IDX):
     return out
 
 
+def distribution(R, lookback=190):
+    """Vùng phân phối gần nhất (ngược với tích lũy) hoặc None.
+    BC = đỉnh cao nhất sau đợt tăng ≥ 30%; AR = đáy nhịp giảm sau BC; sau đó dò ST/UTAD quanh đỉnh,
+    SOW = đóng cửa thủng đáy AR với KL ≥ 1,5×TB20, LPSY = nhịp hồi sau SOW không vượt lại đáy AR, KL thấp hơn."""
+    n = len(R); S = max(0, n - lookback)
+    if n - S < 60:
+        return None
+    V = [r["v"] for r in R]
+    avg = lambda i: _mean(V[max(0, i - 20):i])
+    # BC = đỉnh cục bộ SỚM NHẤT trong dải 5% dưới đỉnh cao nhất (đỉnh cao nhất có thể là UTAD về sau)
+    mx = max(R[i]["h"] for i in range(S, n - 10))
+    bc = next((i for i in range(S, n - 10) if R[i]["h"] >= mx * 0.95
+               and R[i]["h"] == max(r["h"] for r in R[max(S, i - 5):i + 6])),
+              max(range(S, n - 10), key=lambda i: R[i]["h"]))
+    if R[bc]["h"] < 1.3 * min(r["l"] for r in R[max(0, bc - 250):bc + 1]):
+        return None                                         # trước BC không có đợt tăng đáng kể
+    if bc + 3 >= min(n, bc + 30):
+        return None
+    ar = min(range(bc + 3, min(n, bc + 30)), key=lambda i: R[i]["l"])
+    top, bot = R[bc]["h"], R[ar]["l"]
+    if bot > top * 0.93 or any(R[i]["c"] > top * 1.02 for i in range(ar, n)):
+        return None                                         # vùng quá hẹp, hoặc đã vượt đỉnh đi tiếp (tăng tiếp)
+    ev = lambda i, k, pos: dict(d=R[i]["d"], k=k, pos=pos, price=R[i]["l"] if pos == "low" else R[i]["h"],
+                                v=round(V[i], 2), vx=_ratio(V[i], avg(i)))
+    events = [ev(bc, "BC", "high"), ev(ar, "AR", "low")]
+    sow = next((i for i in range(ar + 3, n) if R[i]["c"] < bot and V[i] >= 1.5 * avg(i)), None)
+    k, end = ar + 1, sow if sow is not None else n
+    while k < end:                                          # các lần quay lại gần đỉnh: ST, vượt đỉnh rồi đóng dưới = UTAD
+        if R[k]["h"] >= top * 0.97:
+            j = k
+            while j + 1 < end and R[j + 1]["h"] >= top * 0.97: j += 1
+            b = max(range(k, j + 1), key=lambda i: R[i]["h"])
+            events.append(ev(b, "UTAD" if R[b]["h"] > top and R[b]["c"] < top else "ST", "high"))
+            k = j + 1
+        else:
+            k += 1
+    lpsy = None
+    if sow is not None:
+        events.append(ev(sow, "SOW", "low"))
+        if sow + 2 < n:
+            j = max(range(sow + 1, n), key=lambda i: R[i]["h"])
+            if j > sow and R[j]["h"] <= bot * 1.03 and _mean(V[sow + 1:j + 1]) < V[sow] and R[-1]["c"] < R[j]["h"]:
+                lpsy = j; events.append(ev(j, "LPSY", "high"))
+    c = R[-1]["c"]
+    tag = ("LPSY" if lpsy is not None else "Markdown" if sow is not None and c < bot * 0.9 else
+           "SOW" if sow is not None else "UTAD" if any(e["k"] == "UTAD" for e in events) else "Pha B?")
+    events.sort(key=lambda e: e["d"])
+    return dict(tag=tag, top=top, bot=bot, start=R[bc]["d"], events=events)
+
+
 def analyse(R, IDX=None, floor=None):
     """Trả dict kết quả. R phải là dữ liệu đã cắt ~420 ngày (dùng trim()).
     floor = sàn niêm yết (HOSE/HNX/UPCOM) để làm tròn giá kế hoạch theo bước giá; None = không làm tròn."""
@@ -76,11 +126,15 @@ def analyse(R, IDX=None, floor=None):
     )
     base["pos52"] = round((c - base["lo52"]) / max(base["hi52"] - base["lo52"], 1e-9) * 100)
     base.update(rs_vs_index(R, IDX))
+    base["distrib"] = distribution(R)
 
     sc, ar, mlo_i = find_range(R)
     if ar is None or ar <= sc + 2:
         return dict(base, tag="mới tạo đáy", stage="new", events=[], range=None, levels={})
 
+    dd = base["distrib"]
+    if dd and dd["events"][-1]["d"] < R[sc]["d"]:
+        base["distrib"] = None           # phân phối đã xong, giá đã tạo vùng tích lũy mới sau đó
     hi_before = max(r["h"] for r in R[max(0, sc-250):sc+1])
     drop = 1 - R[sc]["l"] / hi_before
     res, sup = R[ar]["h"], R[sc]["l"]

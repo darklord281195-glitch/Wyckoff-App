@@ -19,6 +19,8 @@ export type Analysis = {
   range: { start: string; sup: number; res: number; sc_d: string; ar_d: string } | null;
   sos?: { d: string; v: number; vx: number | null } | null;
   events: WEvent[]; levels: Levels | Record<string, never>;
+  /** vùng phân phối gần nhất (BC–AR) và các mốc BC/AR/ST/UTAD/SOW/LPSY; null nếu không có */
+  distrib?: { tag: string; top: number; bot: number; start: string; events: WEvent[] } | null;
 };
 export type Row = {
   sym: string; groups: string[]; floor: string | null; name: string | null; tag: string; stage: string; c: number; chg: number; liq: number;

@@ -6,7 +6,7 @@ import { api, SymbolData, GROUP_LABEL, day, fullDate, num, pct, price } from "@/
 
 const WyckoffChart = dynamic(() => import("@/components/WyckoffChart"), { ssr: false });
 import PlanCard from "@/components/PlanCard";
-import WyckoffSchematic, { WYCKOFF_NOTES } from "@/components/WyckoffSchematic";
+import WyckoffSchematic, { WYCKOFF_NOTES, DIST_NOTES } from "@/components/WyckoffSchematic";
 
 const STAGE_HINT: Record<string, string> = {
   "D-LPS": "Đang lùi với KL thấp sau SOS: vùng mua LPS. Đặt cắt lỗ dưới mốc Hỏng.",
@@ -83,6 +83,20 @@ export default function SymbolPage({ params }: { params: Promise<{ code: string 
               </table>
             </div>
             <p style={{ marginBottom: 0 }}>{STAGE_HINT[a.tag] ?? ""} {a.extra ? <span className="muted">({a.extra})</span> : null}</p>
+            {a.distrib && (
+              <p style={{ marginBottom: 0 }}>
+                <b className="down">Phân phối: {a.distrib.tag}</b>{" "}
+                <span className="muted">vùng {price(a.distrib.bot, u)} – {price(a.distrib.top, u)} từ {fullDate(a.distrib.start)} · </span>
+                {a.distrib.events.map((e, i) => (
+                  <span key={e.d + e.k} title={DIST_NOTES[e.k] ? `${DIST_NOTES[e.k].name}: ${DIST_NOTES[e.k].what}` : undefined}
+                    style={{ cursor: DIST_NOTES[e.k] ? "help" : undefined }}>
+                    {i ? " · " : ""}{e.k} {day(e.d)}</span>
+                ))}
+                <br /><span className="muted" style={{ fontSize: 12.5 }}>
+                  Kiểm chứng 2019–2026: chỉ UTAD có tác dụng (yếu) — mã đang giữ/theo dõi gặp UTAD sẽ được báo; SOW/LPSY chỉ để tham khảo.
+                </span>
+              </p>
+            )}
           </section>
 
           <section className="card">

@@ -36,3 +36,15 @@ def test_scan_allowed_only_after_close_weekdays():
     assert api.scan_allowed(t("2026-11-20 15:00"))          # thứ 6, 15:00
     assert not api.scan_allowed(t("2026-11-20 12:00"))      # giữa phiên
     assert not api.scan_allowed(t("2026-11-21 16:00"))      # thứ 7
+
+
+def test_backup_restore_roundtrip(tmp_path):
+    from app import backup
+    conn = connect(tmp_path / "t.db")
+    conn.execute("INSERT INTO positions(id,sym,entry_d,entry_px,qty,stop) VALUES (1,'VIX','2026-11-13',13.1,100,11.8)")
+    conn.execute("INSERT INTO sales(pos_id,d,px,qty) VALUES (1,'2026-11-18',14,40)"); conn.commit()
+    f = backup.backup(conn, tmp_path / "bk")
+    conn.execute("DELETE FROM sales"); conn.execute("UPDATE positions SET qty=1"); conn.commit()
+    backup.restore(f, conn)
+    assert conn.execute("SELECT qty FROM positions").fetchone()[0] == 100
+    assert conn.execute("SELECT count(*) FROM sales").fetchone()[0] == 1

@@ -177,6 +177,9 @@ def main():
     report(trades, lambda t: t["light"], "Đèn lúc báo")
     report(trades, ready_bucket, "Điểm sẵn sàng")
     report(trades, lambda t: t["sig_d"][:4], "Năm")
+    # shortcut: lọc sau khi chạy, nên lệnh bị ẩn vẫn chiếm chỗ "1 lệnh/mã"; đủ để so sánh luật, chưa phải mô phỏng đúng
+    kept = [t for t in trades if t["kind"] not in sig.HIDE.get(t["light"], ())]
+    report(kept, lambda t: "2019–23" if t["sig_d"] < "2024" else "2024–26", "Theo luật ẩn")
     print(f"\nChi tiết từng lệnh: {out}")
 
 

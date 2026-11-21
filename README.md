@@ -44,13 +44,16 @@ Log mỗi lần quét: `logs\scan-YYYYMMDD.log`.
 | 👀 D sớm | Bật ≥ 12% từ Spring/ST lên sát trần, KL ngày tăng > ngày giảm |
 | ⚠️ / ⛔ | Mã đang ở Pha D hoặc trong watchlist rời Pha D, hoặc thủng mốc hỏng |
 | ⛔ 💰 ⏱ 🔼 | Việc cần làm với lệnh đang giữ (xem *Danh mục*): cắt lỗ, chốt lời, hết thời gian, dời cắt lỗ. Luôn xếp đầu tin nhắn |
+| 🔻 UTAD | Mã đang giữ/theo dõi: hôm nay vượt đỉnh BC rồi đóng cửa lại dưới đỉnh (dấu hiệu phân phối) → cân nhắc siết cắt lỗ |
+
+**Phân phối** (`wyckoff.distribution`): BC = đỉnh cục bộ sớm nhất trong 5% dưới đỉnh cao nhất, sau đợt tăng ≥ 30%; AR = đáy nhịp giảm sau BC; ST/UTAD quanh đỉnh; SOW = đóng cửa thủng đáy AR với KL ≥ 1,5 lần TB20; LPSY = nhịp hồi sau SOW không vượt lại đáy AR. Hiện trên biểu đồ (mũi tên đỏ) và trang mã; bỏ qua nếu giá đã tạo vùng tích lũy mới sau đó. Kiểm chứng 2019–2026 (lợi nhuận 10 phiên sau so với trung bình mọi phiên): UTAD kém 0,5–0,9 điểm % ở cả hai giai đoạn, SOW/LPSY không khác trung bình, nên chỉ UTAD được báo.
 
 Chỉ báo tín hiệu mua cho mã thỏa cả ba điều kiện:
 - thanh khoản ≥ `MIN_LIQ_BIL` (mặc định 10 tỷ/ngày)
 - có đợt giảm trước đó ≥ 20%
 - **điểm sẵn sàng ≥ 60** (`READY_BUY`). Lý do: trong backtest 2019–2026, nhóm điểm < 60 có R TB −0,34; hầu hết Spring rơi vào nhóm này.
 
-**Đèn đỏ thì tạm ẩn tín hiệu mua:** tin nhắn chỉ liệt kê tên mã, vì trong backtest tín hiệu mua lúc đèn đỏ có R TB âm. Cảnh báo và việc với danh mục vẫn báo bình thường.
+**Ẩn tín hiệu mua theo màu đèn** (`signals.HIDE`): đèn đỏ ẩn mọi tín hiệu mua; đèn vàng ẩn LPS và D sớm. Tin nhắn chỉ liệt kê tên mã bị ẩn. Luật được chọn trên backtest 2019–2023 và kiểm tra lại trên 2024–2026: tổng R của 2024–26 từ −19 lên +5 (R TB −0,04 → +0,01). Cảnh báo và việc với danh mục vẫn báo bình thường.
 
 Mã đóng cửa dưới đáy vùng (SC) gắn nhãn **Dưới hỗ trợ** và không có kế hoạch mua cho tới khi đóng cửa trở lại trên hỗ trợ (Spring).
 
@@ -83,7 +86,9 @@ Mỗi lần quét, app tính lại từ ngày mua theo luật bán (`core/positi
 - 🔼 **Dời cắt lỗ**: sau T1, cắt lỗ dời lên đáy thấp nhất 10 phiên.
 - ⏱ **Hết thời gian**: 20 phiên chưa chạm T1 thì bán.
 
-Bán xong thì bấm **Đóng lệnh** trên trang Danh mục.
+Bán thực tế thì bấm **Bán** trên trang Danh mục (bán được từng phần); bán hết thì lệnh tự đóng. Mục **Lịch sử bán** ghi từng lần bán với lãi/lỗ sau phí. Cắt lỗ sửa được ngay trong bảng.
+
+**Sao lưu:** sau mỗi lần quét, danh mục, lịch sử bán, watchlist được ghi ra `backups\portfolio-YYYYMMDD.json` (giữ 30 bản). Khôi phục: `.venv\Scripts\python -m app.backup restore ..\backups\portfolio-YYYYMMDD.json`. Giá OHLCV không sao lưu, mất thì tải lại bằng `app.backtest --backfill`.
 
 ## Backtest
 ```bat

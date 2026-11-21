@@ -87,6 +87,13 @@ export default function WyckoffChart({ data, analysis, unit }: { data: Ohlcv[]; 
         color: accent, shape: e.pos === "high" ? "arrowDown" : "arrowUp",
         text: e.k + (e.vx ? ` x${e.vx.toLocaleString("vi-VN", { maximumFractionDigits: 1 })}` : ""),
       }));
+    // mốc phân phối (màu đỏ); bỏ AR/ST để không lẫn với mốc tích lũy cùng tên
+    (analysis?.distrib?.events ?? [])
+      .filter((e) => e.d >= first && ["BC", "UTAD", "SOW", "LPSY"].includes(e.k))
+      .forEach((e) => markers.push({
+        time: e.d as Time, position: e.pos === "high" ? "aboveBar" : "belowBar",
+        color: down, shape: e.pos === "high" ? "arrowDown" : "arrowUp", text: e.k,
+      }));
     candles.setMarkers(markers.sort((a, b) => (a.time < b.time ? -1 : 1)));
     chart.timeScale().fitContent();
     void fg;
