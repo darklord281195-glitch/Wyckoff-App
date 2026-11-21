@@ -31,7 +31,8 @@ copy ..\.env.example ..\.env
 | Quét thủ công + gửi Telegram | `scripts\scan.bat` |
 | Quét thử, không gửi | `scripts\scan.bat --dry-run` |
 | Chỉ một số mã / ngành | `scripts\scan.bat --symbols TCH,DPG` · `--groups ck,bds` |
-| Tự động 15:30 thứ 2–6 | `powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1` |
+| Tự động: quét 15:30 + cảnh báo trong phiên 9:10–14:45, thứ 2–6 | `powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1` |
+| Cảnh báo trong phiên, chạy thử 1 lần | `scripts\intraday.bat --dry-run` |
 
 Log mỗi lần quét: `logs\scan-YYYYMMDD.log`.
 
@@ -76,6 +77,15 @@ Câu mô tả đèn ghi rõ lý do.
 | **Bước giá** | Vùng vào, cắt lỗ, mục tiêu làm tròn theo sàn: HOSE dưới 10.000đ bước 10đ, dưới 50.000đ bước 50đ, còn lại 100đ; HNX/UPCoM 100đ. Cắt lỗ và mục tiêu làm tròn xuống |
 
 Trang chi tiết mã có thêm **máy tính khối lượng**: nhập vốn và % rủi ro mỗi lệnh, app ra số cổ phiếu (làm tròn lô 100).
+
+## Cảnh báo trong phiên (`app/intraday.py`)
+9:15–11:30 và 13:00–14:45, mỗi 5 phút, app lấy giá đang chạy của các mã trong Danh mục và watchlist rồi gửi Telegram khi:
+- ⛔ mã đang giữ chạm cắt lỗ hiện tại · 💰 chạm mục tiêu kế tiếp
+- 🎯 mã watchlist đi vào vùng mua của kế hoạch (theo lần quét cuối ngày gần nhất)
+
+Mỗi cảnh báo gửi tối đa 1 lần/ngày. Đây chỉ là **chú ý**: luật bán vẫn theo giá đóng cửa, vì thủng cắt lỗ trong phiên rồi đóng cửa lại trên là chuyện thường.
+
+Trang mã có nút **Ngày / Tuần** trên biểu đồ: khung tuần (~3 năm) để xem bối cảnh; mốc Wyckoff vẫn tính theo ngày.
 
 ## Danh mục đang giữ
 Trên trang mã, mục Kế hoạch giao dịch, bấm **Ghi nhận đã mua**. Có thể sửa giá mua; nếu mua từ trước thì chọn ngày mua. Cắt lỗ và mục tiêu được **chốt theo kế hoạch tại ngày mua**, không đổi theo các lần quét sau. Mã được tự thêm vào watchlist.

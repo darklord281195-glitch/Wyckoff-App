@@ -18,6 +18,9 @@ CREATE TABLE IF NOT EXISTS signals (
 CREATE TABLE IF NOT EXISTS telegram_sent (        -- phiên đã gửi Telegram: ngày lễ quét lại phiên cũ thì không gửi trùng
   date TEXT PRIMARY KEY, at TEXT DEFAULT (datetime('now', 'localtime'))
 );
+CREATE TABLE IF NOT EXISTS intraday_alerts (      -- cảnh báo giá trong phiên đã gửi: mỗi (ngày, mã, loại) 1 lần
+  date TEXT NOT NULL, sym TEXT NOT NULL, kind TEXT NOT NULL, PRIMARY KEY (date, sym, kind)
+);
 CREATE TABLE IF NOT EXISTS watchlist (
   sym TEXT PRIMARY KEY, note TEXT, added TEXT DEFAULT (date('now'))
 );

@@ -58,7 +58,7 @@ export default function SymbolPage({ params }: { params: Promise<{ code: string 
         </div>
       </section>
 
-      <section className="card"><WyckoffChart data={d.ohlcv} analysis={a} unit={u} /></section>
+      <section className="card"><WyckoffChart data={d.ohlcv} weekly={d.weekly} analysis={a} unit={u} /></section>
 
       {a?.plan && u === "k" && <PlanCard sym={d.sym} plan={a.plan} c={a.c} unit={u} />}
 

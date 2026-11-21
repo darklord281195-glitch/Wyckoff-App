@@ -89,6 +89,19 @@ def _analysis(code: str, at: str | None = None):
     return R, analyse(R, IDX if code != INDEX else None, floor)
 
 
+def weekly(R):
+    """Gộp nến ngày thành nến tuần; khóa = ngày thứ 2 của tuần (frontend gắn mốc sự kiện theo cùng khóa)."""
+    out = {}
+    for r in R:
+        d = dt.date.fromisoformat(r["d"]); k = (d - dt.timedelta(days=d.weekday())).isoformat()
+        w = out.get(k)
+        if w is None:
+            out[k] = dict(r, d=k)
+        else:
+            w.update(h=max(w["h"], r["h"]), l=min(w["l"], r["l"]), c=r["c"], v=round(w["v"] + r["v"], 3))
+    return list(out.values())
+
+
 @app.get("/api/symbols/{code}")
 def symbol(code: str, days: int = 260):
     code = code.upper()
@@ -97,7 +110,7 @@ def symbol(code: str, days: int = 260):
     info = lst.get(code, {})
     return dict(sym=code, groups=group_of(code, lst), name=info.get("name"), floor=info.get("floor"),
                 sector=info.get("icb_name"), unit="pt" if len(code) > 3 else "k",    # VNM, VND... là cổ phiếu
-                ohlcv=R[-days:], analysis=res, signals=signals(120, code), in_watchlist=code in watchlist(conn))
+                ohlcv=R[-days:], weekly=weekly(get_ohlcv(conn, code, 1100, refresh=False)), analysis=res, signals=signals(120, code), in_watchlist=code in watchlist(conn))
 
 
 class WatchItem(BaseModel):

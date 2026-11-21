@@ -58,3 +58,16 @@ def test_backtest_does_not_peek(monkeypatch):
         assert closed and closed <= {key(t) for t in full}, s
         for t in full:
             assert t["sig_d"] < t["entry_d"] <= t["exit_d"] and t["entry"] >= t["stop"], t
+
+
+def test_intraday_check():
+    from app.intraday import check, in_session, VN
+    import datetime as dt
+    bar = dict(o=13.0, h=13.4, l=12.8, c=13.1)
+    kinds = lambda **k: [x[0] for x in check(bar, **k)]
+    assert kinds(stop=12.9, target=13.3) == ["stop", "target"]
+    assert kinds(stop=12.5, target=14) == []
+    assert kinds(plan=dict(entry_lo=13.3, entry_hi=13.6, kind="LPS")) == ["zone"]       # chạm cận dưới vùng
+    assert kinds(plan=dict(entry_lo=13.5, entry_hi=13.6, kind="LPS")) == []
+    t = lambda s: dt.datetime.fromisoformat(s).replace(tzinfo=VN)
+    assert in_session(t("2026-11-20 10:00")) and not in_session(t("2026-11-20 12:00")) and not in_session(t("2026-11-21 10:00"))

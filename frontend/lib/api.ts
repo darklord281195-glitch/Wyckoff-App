@@ -44,7 +44,7 @@ export type Position = {
 export type Sale = { id: number | null; d: string; px: number; qty: number | null; pos_id: number; sym: string;
   entry_d: string; entry_px: number; pnl: number; pnl_vnd: number | null };
 export type SymbolData = {
-  sym: string; groups: string[]; name: string | null; floor: string | null; sector: string | null; unit: "pt" | "k"; ohlcv: Ohlcv[]; analysis: Analysis | null;
+  sym: string; groups: string[]; name: string | null; floor: string | null; sector: string | null; unit: "pt" | "k"; ohlcv: Ohlcv[]; weekly?: Ohlcv[]; analysis: Analysis | null;
   signals: Signal[]; in_watchlist: boolean;
 };
 
