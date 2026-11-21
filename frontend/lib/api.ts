@@ -1,0 +1,70 @@
+export const API = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+
+export type Levels = { support: number; resistance: number; invalid: number };
+export type WEvent = { d: string; k: string; pos: "low" | "high"; price: number; v: number; vx: number | null };
+export type Target = { k: string; price: number; basis: string; pct?: number; rr?: number; ce: boolean };
+export type Plan = {
+  kind: string | null; entry_lo: number | null; entry_hi: number | null; trigger: string;
+  stop: number | null; stop_reason: string; time_stop: number; targets: Target[];
+  rr: number | null; rr_t1?: number | null; main_target?: string; risk_pct: number | null; in_zone?: boolean;
+  ready: { score: number; parts: Record<string, number>; dry?: number; pos?: number };
+  cause?: { cols: number; box: number; width: number; conservative: number; aggressive: number };
+  notes: string[]; exit: string;
+};
+export type Analysis = {
+  plan?: Plan | null; supply?: boolean;
+  d: string; c: number; chg: number; v: number; vx: number | null; ma20: number; ma50: number; ma200: number | null;
+  liq: number; pos52: number; rs5?: number | null; rs20?: number | null; rs60?: number | null;
+  tag: string; stage: string; extra?: string; weak_drop?: boolean; drop?: number; dist?: number;
+  range: { start: string; sup: number; res: number; sc_d: string; ar_d: string } | null;
+  sos?: { d: string; v: number; vx: number | null } | null;
+  events: WEvent[]; levels: Levels | Record<string, never>;
+};
+export type Row = {
+  sym: string; groups: string[]; floor: string | null; name: string | null; tag: string; stage: string; c: number; chg: number; liq: number;
+  rs5: number | null; rs20: number | null; rs60: number | null; dist: number | null; extra: string;
+  weak_drop: boolean; levels: Levels; pos52: number;
+  ready: number | null; rr: number | null; plan_kind: string | null;
+  entry_lo: number | null; entry_hi: number | null; stop: number | null; in_zone: boolean | null;
+};
+export type Market = { date: string; light: "green" | "yellow" | "red" | "?"; text: string; c: number; chg: number; tag: string };
+export type Signal = { date: string; sym: string; kind: string; is_new: number; text: string };
+export type Ohlcv = { d: string; o: number; h: number; l: number; c: number; v: number };
+/** Lệnh đang giữ; các trường sau `note` do backend tính theo luật bán (positions.simulate). */
+export type Position = {
+  id: number; sym: string; kind: string | null; entry_d: string; entry_px: number; qty: number | null;
+  stop: number; targets: number[]; note: string | null; sold: number;   // sold: số cp đã bán (bảng sales)
+  c?: number; d?: string; days?: number; pnl?: number; cur_stop?: number; left?: number; hit?: number;
+  next?: number | null; pending?: string | null; sold_out?: string | null;   // ngày luật đã bán hết
+  events?: { d: string; kind: string; text: string }[];
+};
+/** Một lần bán; pnl % và pnl_vnd đã trừ phí mua 0,15%, bán 0,25%. */
+export type Sale = { id: number | null; d: string; px: number; qty: number | null; pos_id: number; sym: string;
+  entry_d: string; entry_px: number; pnl: number; pnl_vnd: number | null };
+export type SymbolData = {
+  sym: string; groups: string[]; name: string | null; floor: string | null; sector: string | null; unit: "pt" | "k"; ohlcv: Ohlcv[]; analysis: Analysis | null;
+  signals: Signal[]; in_watchlist: boolean;
+};
+
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const r = await fetch(`${API}${path}`, { cache: "no-store", ...init });
+  if (!r.ok) throw new Error(`${r.status} ${await r.text()}`);
+  return r.json() as Promise<T>;
+}
+
+/* ---- định dạng kiểu Việt Nam ---- */
+const nf = (d: number) => new Intl.NumberFormat("vi-VN", { minimumFractionDigits: d, maximumFractionDigits: d });
+export const num = (x: number | null | undefined, d = 0) => (x == null ? "–" : nf(d).format(x));
+/** giá nghìn đồng -> đồng (12.65 -> 12.650); chỉ số giữ 2 số lẻ */
+export const price = (x: number | null | undefined, unit: "pt" | "k" = "k") =>
+  x == null ? "–" : unit === "pt" ? nf(2).format(x) : nf(0).format(Math.round(x * 1000));
+export const pct = (x: number | null | undefined, d = 1) => (x == null ? "–" : (x > 0 ? "+" : "") + nf(d).format(x) + "%");
+export const day = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+export const fullDate = (d: string) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`;
+
+export const STAGE_LABEL: Record<string, string> = {
+  D: "Pha D", near: "Sát trần", E: "Pha E?", failed: "SOS hỏng", BC: "Pha B/C", below: "Dưới hỗ trợ", new: "Mới tạo đáy",
+};
+export const GROUP_LABEL: Record<string, string> = {
+  ck: "Chứng khoán", bds: "Bất động sản", nh: "Ngân hàng", dtc: "Đầu tư công", thep: "Thép", wl: "Watchlist",
+};

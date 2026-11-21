@@ -1,0 +1,12 @@
+.env
+backend/.venv/
+backend/wyckoff.db
+backend/**/__pycache__/
+backend/.pytest_cache/
+logs/
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+.playwright-mcp/
+backend/*.db-*
+backups/

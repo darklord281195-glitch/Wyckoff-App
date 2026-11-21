@@ -1,0 +1,39 @@
+import sqlite3
+from .config import DB_PATH
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS ohlcv (
+  sym TEXT NOT NULL, d TEXT NOT NULL,
+  o REAL, h REAL, l REAL, c REAL, v REAL,          -- giá nghìn đồng (chỉ số: điểm), KL triệu cp
+  PRIMARY KEY (sym, d)
+);
+CREATE TABLE IF NOT EXISTS scan_results (
+  date TEXT NOT NULL, sym TEXT NOT NULL, stage TEXT, data TEXT,
+  PRIMARY KEY (date, sym)
+);
+CREATE TABLE IF NOT EXISTS signals (
+  date TEXT NOT NULL, sym TEXT NOT NULL, kind TEXT NOT NULL, is_new INTEGER, text TEXT,
+  PRIMARY KEY (date, sym, kind)
+);
+CREATE TABLE IF NOT EXISTS telegram_sent (        -- phiên đã gửi Telegram: ngày lễ quét lại phiên cũ thì không gửi trùng
+  date TEXT PRIMARY KEY, at TEXT DEFAULT (datetime('now', 'localtime'))
+);
+CREATE TABLE IF NOT EXISTS watchlist (
+  sym TEXT PRIMARY KEY, note TEXT, added TEXT DEFAULT (date('now'))
+);
+CREATE TABLE IF NOT EXISTS positions (            -- lệnh đã mua; cắt lỗ + mục tiêu chốt cố định lúc mua
+  id INTEGER PRIMARY KEY, sym TEXT NOT NULL, kind TEXT, entry_d TEXT NOT NULL, entry_px REAL NOT NULL,
+  qty INTEGER, stop REAL NOT NULL, targets TEXT,  -- targets: JSON [giá T1, T2, ...] (nghìn đồng)
+  status TEXT NOT NULL DEFAULT 'open', exit_d TEXT, exit_px REAL, note TEXT
+);
+CREATE TABLE IF NOT EXISTS sales (                -- từng lần bán thực tế của một lệnh (bán từng phần được)
+  id INTEGER PRIMARY KEY, pos_id INTEGER NOT NULL, d TEXT NOT NULL, px REAL NOT NULL, qty INTEGER
+);
+"""
+
+
+def connect(path=None) -> sqlite3.Connection:
+    conn = sqlite3.connect(str(path or DB_PATH), check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    conn.executescript(SCHEMA)
+    return conn
