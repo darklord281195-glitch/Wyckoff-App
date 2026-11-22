@@ -158,6 +158,15 @@ Giới hạn:
 - Giá đã điều chỉnh.
 - Trượt giá là một mức cố định, chưa theo thanh khoản từng mã.
 
+**Kiểm chứng bộ lọc mới:**
+```bat
+.venv\Scripts\python -m app.backtest --backfill-foreign     :: một lần: ~8 năm khối ngoại cho mã từng có GT ≥ 10 tỷ (~40 giây)
+.venv\Scripts\python -m app.backtest --compare              :: so từng bộ lọc: giữ lại / bỏ đi, tách 2019–23 và 2024–26
+```
+So các bộ lọc: luật ẩn hiện tại, chỉ đèn xanh, khối ngoại mua ròng 10 phiên > 0, ngành mạnh hơn VNINDEX (trung vị RS20 các mã cùng ngành ICB có GT ≥ 10 tỷ), các kết hợp, và cắt lỗ thời gian 15/20/30 phiên (`--time-stop`). Bộ lọc chỉ đáng dùng khi "giữ lại" tốt hơn "bỏ đi" ở **cả hai** giai đoạn. Chi tiết từng lệnh kèm đặc trưng: `logs\compare-YYYYMMDD.csv`.
+
+Kết quả 22/11/2026 (1.341 lệnh, trượt giá 0,25%): luật ẩn hiện tại và "chỉ đèn xanh" cho kết quả gần như nhau, cả hai đều tách được lệnh tốt/xấu ở hai giai đoạn. Khối ngoại, ngành mạnh và các kết hợp không qua được 2024–26 (ngành mạnh còn cho kết quả ngược). Cắt lỗ thời gian 15/30 phiên không tốt hơn 20 một cách nhất quán. Vì vậy chưa đổi luật nào.
+
 Khi chỉnh tham số, so sánh hai giai đoạn (vd `--to 2023-12-31` rồi `--from 2024-01-01`) để tránh khớp quá mức với dữ liệu cũ.
 
 ## Kiểm thử

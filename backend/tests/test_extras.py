@@ -71,3 +71,27 @@ def test_sync_foreign_only_missing_and_net_sum(tmp_path):
     assert net_sum(conn, "AAA", "2026-11-20") == 10.0
     assert net_sum(conn, "AAA", "2026-11-21") is None         # thiếu phiên 21/11 -> không báo số cũ
     assert net_sum(conn, "AAA", "2026-11-06") is None         # chưa đủ 10 phiên
+
+
+def test_sector_medians_and_rs():
+    from collections import defaultdict
+    acc = defaultdict(list)
+    idx = {f"2026-01-{d:02d}": 100.0 for d in range(1, 32)}
+    # mã tăng 10% trong 20 phiên, VNINDEX đứng yên -> RS20 = +10; GT đủ lớn để qua ngưỡng thanh khoản
+    R = [dict(d=f"2026-01-{d:02d}", o=10, h=10, l=10, c=10 + (d > 21), v=10) for d in range(1, 32)]
+    backtest.add_sector_rs(R, idx, "8600", acc)
+    backtest.add_sector_rs(R, idx, None, acc)                 # mã không có ngành: bỏ qua
+    assert all(k[0] == "8600" for k in acc) and round(acc[("8600", "2026-01-22")][0], 1) == 10.0
+    med = backtest.sector_medians({("x", "d"): [1, 5, 3], ("y", "d"): [1, 2]})
+    assert med == {("x", "d"): 3}                              # nhóm < 3 mã bị bỏ
+
+
+def test_backfill_foreign_requests_long_history(tmp_path):
+    from app.core.foreign import backfill_foreign, HISTORY_SESSIONS
+    conn = connect(tmp_path / "t.db")
+    asked = []
+    def fake(sym, end=None, size=0):
+        asked.append(size)
+        return [dict(d="2026-11-20", buy=1.0, sell=0.0, net=1.0, net_vol=1, room=1, total_room=1)]
+    assert backfill_foreign(conn, ["AAA", "BBB"], fetcher=fake) == []
+    assert asked == [HISTORY_SESSIONS] * 2 and conn.execute("SELECT count(*) FROM foreign_trade").fetchone()[0] == 2

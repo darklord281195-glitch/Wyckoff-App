@@ -19,8 +19,10 @@ from .core.data import get_ohlcv, sync_many
 from .core.wyckoff import analyse, ANALYSIS_DAYS
 from .core.market import traffic_light
 from .core.positions import simulate
+from .core.plan import TIME_STOP
+from .core.foreign import backfill_foreign, net_sum
 from .core import signals as sig
-from .universe import universe, INDEX
+from .universe import universe, listing, INDEX
 
 HISTORY = 3000                          # số ngày lịch sử tải khi --backfill (~8 năm)
 BUY_FEE, SELL_FEE = 0.0015, 0.0025      # phí môi giới 0,15% mỗi chiều; bán thêm thuế 0,1%
@@ -63,7 +65,7 @@ def _fill(R, i, p):
     return None, None, min(i + WAIT, len(R) - 1)
 
 
-def run_symbol(sym, R, IDX, start="0000", end="9999", orders=None, slip=SLIP):
+def run_symbol(sym, R, IDX, start="0000", end="9999", orders=None, slip=SLIP, time_stop=TIME_STOP):
     """Các lệnh backtest của một mã; mỗi lúc chỉ một lệnh (đang chờ khớp hoặc đang giữ).
     R, IDX: OHLCV tăng dần, nên có đủ lịch sử trước `start` để phân tích. orders: Counter đếm lệnh đặt theo loại."""
     D, DI = [r["d"] for r in R], [r["d"] for r in IDX]
@@ -84,7 +86,7 @@ def run_symbol(sym, R, IDX, start="0000", end="9999", orders=None, slip=SLIP):
         if f is None:
             i, prev = j + 1, None; continue
         targets = [t["price"] for t in p["targets"]]
-        s = simulate(px, p["stop"], targets, R[f:])
+        s = simulate(px, p["stop"], targets, R[f:], time_stop)
         e = bisect.bisect_left(D, s["exits"][-1]["d"]) if not s["open"] else len(R) - 1
         value = (sum(z["frac"] * z["px"] for z in s["exits"]) + s["left"] * R[e]["c"]) * (1 - SELL_FEE - slip)
         cost = px * (1 + BUY_FEE + slip)
@@ -175,9 +177,115 @@ def ready_bucket(t):
     return "<60" if s < 60 else "60–69" if s < 70 else "70–79" if s < 80 else "≥80"
 
 
+def add_sector_rs(R, idx_c, icb, acc):
+    """Cộng dồn RS20 theo (ngành, ngày) cho các phiên mã đủ thanh khoản; cùng công thức rs_vs_index (% so VNINDEX)."""
+    if not icb:
+        return
+    for i in range(20, len(R)):
+        d, d0 = R[i]["d"], R[i - 20]["d"]
+        if d in idx_c and d0 in idx_c and _liq(R, i) >= MIN_LIQ_BIL:
+            acc[(icb, d)].append((R[i]["c"] / R[i - 20]["c"] - idx_c[d] / idx_c[d0]) * 100)
+
+
+def sector_medians(acc, min_n=3):
+    """{(ngành, ngày): trung vị RS20} cho nhóm có ít nhất min_n mã."""
+    out = {}
+    for k, xs in acc.items():
+        if len(xs) >= min_n:
+            xs = sorted(xs); m = len(xs) // 2
+            out[k] = round(xs[m] if len(xs) % 2 else (xs[m - 1] + xs[m]) / 2, 2)
+    return out
+
+
+def collect(conn, syms, start, end, slip=SLIP, time_stops=(TIME_STOP,), log=print):
+    """{time_stop: [lệnh]}: chạy backtest mọi mã; mỗi lệnh gắn đèn, khối ngoại 10 phiên và RS20 ngành lúc báo.
+    Nhiều time_stop thì chạy lại run_symbol cho từng giá trị (điểm vào giống nhau, chỉ khác luật thoát)."""
+    t0 = time.time()
+    IDX = get_ohlcv(conn, INDEX, HISTORY + 400, refresh=False)
+    idx_c = {r["d"]: r["c"] for r in IDX}
+    lst = listing(conn)
+    up, tot, sec, orders = defaultdict(int), defaultdict(int), defaultdict(list), Counter()
+    out = {ts: [] for ts in time_stops}
+    for n, s in enumerate(syms, 1):
+        R = get_ohlcv(conn, s, HISTORY + 400, refresh=False)
+        add_breadth(R, up, tot)
+        add_sector_rs(R, idx_c, (lst.get(s) or {}).get("icb"), sec)
+        for j, ts in enumerate(time_stops):
+            out[ts] += run_symbol(s, R, IDX, start, end, orders if j == 0 else None, slip, ts)
+        if n % 50 == 0:
+            log(f"  {n}/{len(syms)} mã · {len(out[time_stops[0]])} lệnh · {time.time() - t0:.0f} giây")
+    light, med = lights(IDX, up, tot), sector_medians(sec)
+    for trades in out.values():
+        for t in trades:
+            t["light"] = light.get(t["sig_d"], "?")
+            t["fx10"] = net_sum(conn, t["sym"], t["sig_d"])
+            t["sector_rs20"] = med.get(((lst.get(t["sym"]) or {}).get("icb"), t["sig_d"]))
+    return out, orders
+
+
+PERIODS = (("2019–23", lambda t: t["sig_d"] < "2024"), ("2024–26", lambda t: t["sig_d"] >= "2024"), ("Tất cả", lambda t: True))
+
+
+def compare(trades, name, keep, has=lambda t: True):
+    """In so sánh lệnh giữ lại / bỏ đi theo một bộ lọc, tách 2019–23 và 2024–26.
+    has(t) = lệnh có đủ dữ liệu cho bộ lọc này (vd có khối ngoại); lệnh thiếu bị loại khỏi so sánh."""
+    closed = [t for t in trades if not t["open"]]
+    usable = [t for t in closed if has(t)]
+    miss = len(closed) - len(usable)
+    print(f"\n{name}" + (f"  (bỏ {miss} lệnh thiếu dữ liệu)" if miss else ""))
+    print(f"  {'giai đoạn':<10}{'':<9}{'lệnh':>7}{'thắng%':>8}{'R TB':>7}{'KTC95% R':>16}")
+    for pname, pf in PERIODS:
+        for label, sel in (("giữ lại", True), ("bỏ đi", False)):
+            xs = [t for t in usable if pf(t) and bool(keep(t)) == sel]
+            if not xs:
+                print(f"  {pname:<10}{label:<9}{0:>7}"); continue
+            s = stats(xs)
+            ci = f"{s['ci_lo']:+.2f}…{s['ci_hi']:+.2f}" if s["n"] > 1 else "–"
+            print(f"  {pname:<10}{label:<9}{s['n']:>6}{'*' if s['n'] < FEW else ' '}{s['win']:>8.0f}{s['avg_r']:>7.2f}{ci:>16}")
+
+
+def run_compare(conn, syms, a, slip):
+    """Kiểm chứng các bộ lọc mới so với toàn bộ lệnh và luật ẩn hiện tại; ghi logs/compare-YYYYMMDD.csv."""
+    tss = sorted({int(x) for x in a.time_stop.split(",")} | {TIME_STOP})
+    out, _ = collect(conn, syms, a.start, a.end, slip, tuple([TIME_STOP] + [x for x in tss if x != TIME_STOP]))
+    trades = out[TIME_STOP]
+    if not trades:
+        print("Không có lệnh nào (đã chạy --backfill chưa?)"); return
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    path = LOG_DIR / f"compare-{dt.date.today():%Y%m%d}.csv"
+    with open(path, "w", newline="", encoding="utf-8-sig") as f:
+        w = csv.DictWriter(f, fieldnames=list(trades[0])); w.writeheader(); w.writerows(trades)
+    print(f"So sánh bộ lọc trên {len(trades)} lệnh (trượt giá {a.slip:g}%/chiều). "
+          "Bộ lọc đáng dùng: 'giữ lại' tốt hơn 'bỏ đi' ở CẢ 2019–23 lẫn 2024–26. * = dưới 30 lệnh.")
+    hidden = lambda t: t["kind"] in sig.HIDE.get(t["light"], ())
+    green, fx, sec = (lambda t: t["light"] == "green"), (lambda t: t["fx10"] > 0), (lambda t: t["sector_rs20"] > 0)
+    has_fx, has_sec = (lambda t: t["fx10"] is not None), (lambda t: t["sector_rs20"] is not None)
+    compare(trades, "0) Luật ẩn hiện tại (đỏ: ẩn mọi lệnh mua; vàng: ẩn LPS, D sớm)", lambda t: not hidden(t))
+    compare(trades, "a) Chỉ mua khi đèn xanh", green)
+    compare(trades, "b) Khối ngoại mua ròng 10 phiên > 0", fx, has_fx)
+    compare(trades, "c) Ngành mạnh hơn VNINDEX (trung vị RS20 ngành > 0)", sec, has_sec)
+    compare(trades, "e1) Đèn xanh + ngành mạnh", lambda t: green(t) and sec(t), has_sec)
+    compare(trades, "e2) Đèn xanh + khối ngoại mua ròng", lambda t: green(t) and fx(t), has_fx)
+    compare(trades, "e3) Luật ẩn hiện tại + ngành mạnh", lambda t: not hidden(t) and sec(t), has_sec)
+    print("\nd) Cắt lỗ theo thời gian (cùng điểm vào, chỉ khác số phiên chờ chạm T1)")
+    print(f"  {'phiên':<8}{'giai đoạn':<10}{'lệnh':>7}{'thắng%':>8}{'R TB':>7}{'KTC95% R':>16}{'phiên giữ':>11}")
+    for ts in tss:
+        for pname, pf in PERIODS:
+            xs = [t for t in out[ts] if not t["open"] and pf(t)]
+            if xs:
+                s = stats(xs)
+                print(f"  {ts:<8}{pname:<10}{s['n']:>6} {s['win']:>8.0f}{s['avg_r']:>7.2f}"
+                      f"{s['ci_lo']:+9.2f}…{s['ci_hi']:+.2f}{s['avg_days']:>9.0f}")
+    print(f"\nChi tiết từng lệnh (kèm đèn, khối ngoại, RS ngành): {path}")
+
+
 def main():
     ap = argparse.ArgumentParser(description="Backtest tín hiệu Wyckoff")
     ap.add_argument("--backfill", action="store_true", help=f"tải lại {HISTORY} ngày lịch sử cho các mã rồi thoát")
+    ap.add_argument("--backfill-foreign", action="store_true",
+                    help="tải ~8 năm khối ngoại cho các mã từng có GT ≥ MIN_LIQ_BIL rồi thoát (cho --compare)")
+    ap.add_argument("--compare", action="store_true", help="kiểm chứng các bộ lọc mới (đèn xanh, khối ngoại, ngành, cắt lỗ thời gian)")
+    ap.add_argument("--time-stop", default="15,20,30", help="cùng --compare: các số phiên cắt lỗ thời gian để so")
     ap.add_argument("--symbols", help="danh sách mã, mặc định toàn bộ HOSE+HNX + nhóm theo dõi + watchlist")
     ap.add_argument("--from", dest="start", default="2019-06-01")
     ap.add_argument("--to", dest="end", default="9999-12-31")
@@ -191,17 +299,16 @@ def main():
         err = sync_many(conn, syms + [INDEX], HISTORY, full=True)
         print(f"Đã tải {len(syms) + 1} mã trong {time.time() - t0:.0f} giây, lỗi {len(err)} {', '.join(err[:10])}")
         return
-    IDX = get_ohlcv(conn, INDEX, HISTORY + 400, refresh=False)
-    up, tot, orders, trades = defaultdict(int), defaultdict(int), Counter(), []
-    for n, s in enumerate(syms, 1):
-        R = get_ohlcv(conn, s, HISTORY + 400, refresh=False)
-        add_breadth(R, up, tot)
-        trades += run_symbol(s, R, IDX, a.start, a.end, orders, slip)
-        if n % 50 == 0:
-            print(f"  {n}/{len(syms)} mã · {len(trades)} lệnh · {time.time() - t0:.0f} giây")
-    light = lights(IDX, up, tot)
-    for t in trades:
-        t["light"] = light.get(t["sig_d"], "?")
+    if a.backfill_foreign:
+        liquid = [s for s in syms if any(_liq(R, i) >= MIN_LIQ_BIL for R in [get_ohlcv(conn, s, HISTORY + 400, refresh=False)]
+                                         for i in range(19, len(R), 5))]
+        err = backfill_foreign(conn, liquid)
+        print(f"Đã tải khối ngoại {len(liquid)} mã trong {time.time() - t0:.0f} giây, lỗi {len(err)} {', '.join(err[:10])}")
+        return
+    if a.compare:
+        run_compare(conn, syms, a, slip); return
+    out, orders = collect(conn, syms, a.start, a.end, slip)
+    trades = out[TIME_STOP]
     if not trades:
         print("Không có lệnh nào (đã chạy --backfill chưa?)"); return
 

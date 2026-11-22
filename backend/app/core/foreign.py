@@ -22,13 +22,25 @@ def fetch(sym: str, end: str | None = None, size: int = MAX_SESSIONS + 20) -> li
 def sync_foreign(conn, syms: list[str], upto: str, workers: int = 6, fetcher=None) -> list[str]:
     """Tải khối ngoại cho các mã chưa có phiên `upto` (tải mạng trong thread pool, ghi DB ở thread chính,
     giống core.data.sync_many). Chưa có gì thì tải 110 phiên, có rồi thì 15. Trả danh sách mã lỗi."""
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    fetcher = fetcher or fetch
     need = {}
     for s in syms:
         last = conn.execute("SELECT max(d) FROM foreign_trade WHERE sym=?", (s,)).fetchone()[0]
         if not last or last < upto:
             need[s] = 15 if last else MAX_SESSIONS + 20
+    return _download(conn, need, workers, fetcher or fetch)
+
+
+HISTORY_SESSIONS = 2100                # ~8 năm, cho backtest --compare
+
+
+def backfill_foreign(conn, syms: list[str], workers: int = 6, fetcher=None) -> list[str]:
+    """Tải ~8 năm khối ngoại cho các mã (backtest kiểm chứng bộ lọc khối ngoại). Trả danh sách mã lỗi."""
+    return _download(conn, {s: HISTORY_SESSIONS for s in syms}, workers, fetcher or fetch)
+
+
+def _download(conn, need: dict[str, int], workers, fetcher) -> list[str]:
+    """Tải {mã: số phiên} trong thread pool, ghi DB ở thread chính (giống core.data.sync_many)."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
     errors = []
 
     def job(s):
