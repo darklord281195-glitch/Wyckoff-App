@@ -111,3 +111,26 @@ def test_sector_stats_and_api(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "conn", conn)
     got = TestClient(api.app).get("/api/sectors").json()
     assert got["date"] == "2026-11-20" and got["rows"][0]["name"] == "Bất động sản"
+
+
+def test_fundamentals_point_in_time():
+    from app.core import fundamentals as F
+    rows = []
+    for i, (f, created) in enumerate([("2025-03-31", "2025-04-25"), ("2025-06-30", "2025-07-25"), ("2025-09-30", "2025-10-25"),
+                                      ("2025-12-31", "2026-01-25"), ("2026-03-31", "2026-04-25"), ("2026-06-30", "2026-07-25"),
+                                      ("2026-09-30", "2026-10-25"), ("2026-12-31", "2027-01-25")]):
+        rows += [dict(fiscal=f, created=created, item="np", value=10.0 + i * 0 + (5 if i >= 4 else 0)),
+                 dict(fiscal=f, created=created, item="equity", value=100.0),
+                 dict(fiscal=f, created=created, item="debt_st", value=20.0)]
+    m = F.metrics_at(rows, "2026-11-20")              # quý 4/2026 công bố 25/01/2027: chưa được dùng
+    assert m["fiscal"] == "2026-09-30"
+    assert m["np_ttm"] == 15 + 15 + 15 + 10           # 4 quý: Q4/25 (10) + Q1–Q3/26 (15)
+    assert m["np_growth"] is None                     # thiếu quý 4/2024 để có 4 quý trước đó
+    m2 = F.metrics_at(rows)                           # không giới hạn ngày: Q1–Q4/2026 = 60 so với 40
+    assert m2["np_ttm"] == 60 and m2["np_growth"] == 50.0 and m2["roe"] == 60.0 and m2["debt_equity"] == 0.2
+    assert F.metrics_at(rows, "2025-01-01") is None   # chưa có báo cáo nào được công bố
+
+
+def test_quarters_back():
+    from app.core.fundamentals import _quarters_back
+    assert _quarters_back("2026-09-30", 4) == "2025-09-30" and _quarters_back("2026-03-31", 1) == "2025-12-31"

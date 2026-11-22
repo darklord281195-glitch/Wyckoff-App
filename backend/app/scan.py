@@ -19,6 +19,7 @@ from .universe import universe, watchlist, refresh_listing, listing, INDEX
 from . import notify, charts, backup
 from .core import risk as risk_mod
 from .core import sectors as sectors_mod
+from .core import fundamentals as fund
 
 LIGHT_ICON = {"green": "🟢", "yellow": "🟡", "red": "🔴", "?": "⚪"}
 
@@ -81,6 +82,15 @@ def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log
             log.info("Khối ngoại %d mã trong %.0f giây (lỗi %d)", len(fx_syms), time.time() - t0, len(fx_err))
         except Exception as e:                  # khối ngoại lỗi không được làm hỏng lần quét
             log.warning("Không tải được khối ngoại: %s", e)
+        try:                                    # BCTC quý: chỉ mã đủ thanh khoản, tải lại mỗi tuần
+            t0 = time.time()
+            liquid = [s for s in fx_syms if (lambda R0: sum(r["v"] for r in R0[-20:]) / 20 * R0[-1]["c"] >= MIN_LIQ_BIL)(
+                get_ohlcv(conn, s, 60, refresh=False))]
+            f_err = fund.sync(conn, liquid)
+            log.info("BCTC %d mã (tải lại mã cũ hơn %d ngày) trong %.0f giây (lỗi %d)",
+                     len(liquid), fund.REFRESH_DAYS, time.time() - t0, len(f_err))
+        except Exception as e:
+            log.warning("Không tải được BCTC: %s", e)
     skipped = 0
     for i, s in enumerate(syms, 1):
         try:

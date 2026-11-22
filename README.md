@@ -188,6 +188,12 @@ So các bộ lọc: luật ẩn hiện tại, chỉ đèn xanh, khối ngoại m
 
 Kết quả 22/11/2026 (1.341 lệnh, trượt giá 0,25%): luật ẩn hiện tại và "chỉ đèn xanh" cho kết quả gần như nhau, cả hai đều tách được lệnh tốt/xấu ở hai giai đoạn. Khối ngoại, ngành mạnh và các kết hợp không qua được 2024–26 (ngành mạnh còn cho kết quả ngược). Cắt lỗ thời gian 15/30 phiên không tốt hơn 20 một cách nhất quán. Vì vậy chưa đổi luật nào.
 
+**Lọc cơ bản (BCTC quý):**
+```bat
+.venv\Scripts\python -m app.backtest --backfill-fundamentals    :: một lần: BCTC quý cho mã từng có GT ≥ 10 tỷ (~20 giây)
+```
+Nguồn VNDirect finfo `/financial_statements` (LNST công ty mẹ, VCSH, doanh thu, vay nợ). Chỉ số tại một ngày chỉ dùng báo cáo **đã công bố** trước ngày đó (`createdDate`), nên backtest không nhìn trước tương lai. `--compare` có thêm bộ lọc: LNST 4 quý tăng trưởng > 0, ROE > 10%, cả hai, và luật ẩn + cả hai. Kết quả 22/11/2026: **không bộ lọc nào giúp**, nhóm mã có nền tảng tốt còn cho R thấp hơn ở cả 2019–23 lẫn 2024–26, nên không đưa vào luật. Trang mã có khối **Cơ bản** (LNST 4 quý, tăng trưởng, ROE, nợ vay/VCSH, doanh thu, P/E, vốn hóa) để tham khảo; lần quét cuối ngày tải lại BCTC mỗi tuần cho mã đủ thanh khoản.
+
 Khi chỉnh tham số, so sánh hai giai đoạn (vd `--to 2023-12-31` rồi `--from 2024-01-01`) để tránh khớp quá mức với dữ liệu cũ.
 
 ## Kiểm thử

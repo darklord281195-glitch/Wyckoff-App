@@ -21,6 +21,7 @@ from .core.market import traffic_light
 from .core.positions import simulate
 from .core.plan import TIME_STOP
 from .core.foreign import backfill_foreign, net_sum
+from .core import fundamentals as fund
 from .core import signals as sig
 from .universe import universe, listing, INDEX
 
@@ -251,6 +252,11 @@ def run_compare(conn, syms, a, slip):
     trades = out[TIME_STOP]
     if not trades:
         print("Không có lệnh nào (đã chạy --backfill chưa?)"); return
+    fin = {}
+    for t in trades:                       # chỉ số cơ bản tại ngày báo, chỉ từ báo cáo đã công bố trước đó
+        rows = fin.setdefault(t["sym"], fund.load(conn, t["sym"]))
+        m = fund.metrics_at(rows, t["sig_d"]) or {}
+        t["np_growth"], t["roe"] = m.get("np_growth"), m.get("roe")
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     path = LOG_DIR / f"compare-{dt.date.today():%Y%m%d}.csv"
     with open(path, "w", newline="", encoding="utf-8-sig") as f:
@@ -267,6 +273,13 @@ def run_compare(conn, syms, a, slip):
     compare(trades, "e1) Đèn xanh + ngành mạnh", lambda t: green(t) and sec(t), has_sec)
     compare(trades, "e2) Đèn xanh + khối ngoại mua ròng", lambda t: green(t) and fx(t), has_fx)
     compare(trades, "e3) Luật ẩn hiện tại + ngành mạnh", lambda t: not hidden(t) and sec(t), has_sec)
+    grow, roe = (lambda t: t["np_growth"] > 0), (lambda t: t["roe"] > 10)
+    has_g, has_r = (lambda t: t["np_growth"] is not None), (lambda t: t["roe"] is not None)
+    compare(trades, "f1) LNST 4 quý tăng trưởng > 0 (so với 4 quý trước)", grow, has_g)
+    compare(trades, "f2) ROE 4 quý > 10%", roe, has_r)
+    compare(trades, "f3) Tăng trưởng > 0 và ROE > 10%", lambda t: grow(t) and roe(t), lambda t: has_g(t) and has_r(t))
+    compare(trades, "f4) Luật ẩn hiện tại + f3", lambda t: not hidden(t) and grow(t) and roe(t),
+            lambda t: has_g(t) and has_r(t))
     print("\nd) Cắt lỗ theo thời gian (cùng điểm vào, chỉ khác số phiên chờ chạm T1)")
     print(f"  {'phiên':<8}{'giai đoạn':<10}{'lệnh':>7}{'thắng%':>8}{'R TB':>7}{'KTC95% R':>16}{'phiên giữ':>11}")
     for ts in tss:
@@ -284,6 +297,8 @@ def main():
     ap.add_argument("--backfill", action="store_true", help=f"tải lại {HISTORY} ngày lịch sử cho các mã rồi thoát")
     ap.add_argument("--backfill-foreign", action="store_true",
                     help="tải ~8 năm khối ngoại cho các mã từng có GT ≥ MIN_LIQ_BIL rồi thoát (cho --compare)")
+    ap.add_argument("--backfill-fundamentals", action="store_true",
+                    help="tải BCTC quý (LNST, VCSH, doanh thu, nợ vay) cho các mã từng có GT ≥ MIN_LIQ_BIL rồi thoát")
     ap.add_argument("--compare", action="store_true", help="kiểm chứng các bộ lọc mới (đèn xanh, khối ngoại, ngành, cắt lỗ thời gian)")
     ap.add_argument("--time-stop", default="15,20,30", help="cùng --compare: các số phiên cắt lỗ thời gian để so")
     ap.add_argument("--portfolio", action="store_true",
@@ -306,6 +321,14 @@ def main():
                                          for i in range(19, len(R), 5))]
         err = backfill_foreign(conn, liquid)
         print(f"Đã tải khối ngoại {len(liquid)} mã trong {time.time() - t0:.0f} giây, lỗi {len(err)} {', '.join(err[:10])}")
+        return
+    if a.backfill_fundamentals:
+        liquid = [s for s in syms if any(_liq(R, i) >= MIN_LIQ_BIL for R in [get_ohlcv(conn, s, HISTORY + 400, refresh=False)]
+                                         for i in range(19, len(R), 5))]
+        err = fund.sync(conn, liquid, force=True)
+        n = conn.execute("SELECT count(DISTINCT sym), count(*) FROM fin_quarter").fetchone()
+        print(f"Đã tải BCTC {len(liquid)} mã trong {time.time() - t0:.0f} giây ({n[0]} mã có số liệu, {n[1]} dòng), "
+              f"lỗi {len(err)} {', '.join(err[:10])}")
         return
     if a.compare:
         run_compare(conn, syms, a, slip); return

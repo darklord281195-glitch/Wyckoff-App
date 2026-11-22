@@ -40,6 +40,13 @@ CREATE TABLE IF NOT EXISTS sector_stats (         -- sức mạnh ngành ICB m�
 CREATE TABLE IF NOT EXISTS backtest_runs (        -- backtest cấp danh mục (portfolio_bt.py): chỉ số + đường vốn theo tuần
   id INTEGER PRIMARY KEY, created TEXT, params TEXT, metrics TEXT, curves TEXT
 );
+CREATE TABLE IF NOT EXISTS fin_quarter (          -- BCTC quý (core/fundamentals.py), giá trị tỷ đồng; created = ngày công bố
+  sym TEXT NOT NULL, fiscal TEXT NOT NULL, created TEXT, item TEXT NOT NULL, value REAL,
+  PRIMARY KEY (sym, fiscal, item)
+);
+CREATE TABLE IF NOT EXISTS fin_meta (             -- lần tải BCTC gần nhất + P/E theo ngày
+  sym TEXT PRIMARY KEY, fetched TEXT, pe REAL, mcap REAL, pe_date TEXT
+);
 CREATE TABLE IF NOT EXISTS watchlist (
   sym TEXT PRIMARY KEY, note TEXT, added TEXT DEFAULT (date('now'))
 );

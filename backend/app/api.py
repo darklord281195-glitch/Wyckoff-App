@@ -13,6 +13,7 @@ from .core.foreign import get_foreign
 from .core import risk as risk_mod
 from .core import journal as journal_mod
 from .core import forward as forward_mod
+from .core import fundamentals as fund
 from .universe import GROUP_NAMES, INDEX, group_of, watchlist, listing, sectors
 from . import scan as scan_mod
 from .core.signals import PRIORITY
@@ -38,6 +39,33 @@ def _session(date: str | None = None):
 @app.get("/api/scan/dates")
 def scan_dates():
     return [r[0] for r in conn.execute("SELECT DISTINCT date FROM scan_results ORDER BY date DESC")]
+
+
+def _fundamentals(code: str, at: str | None):
+    """Chỉ số cơ bản tại ngày xem (chỉ báo cáo đã công bố tới ngày đó) + P/E mới nhất (khi xem phiên mới nhất).
+    Chưa có BCTC thì tải ngay; lỗi mạng thì trả phần đã có."""
+    err = None
+    try:
+        fund.sync(conn, [code])
+    except Exception as e:
+        err = str(e)
+    m = fund.metrics_at(fund.load(conn, code), at)
+    pe = None
+    if not at:
+        meta = conn.execute("SELECT pe, mcap, pe_date FROM fin_meta WHERE sym=?", (code,)).fetchone()
+        today = dt.date.today().isoformat()
+        if meta and meta["pe_date"] == today:
+            pe = dict(pe=meta["pe"], mcap=meta["mcap"])
+        else:
+            try:
+                pe = fund.fetch_pe(code)
+                conn.execute("INSERT INTO fin_meta(sym, pe, mcap, pe_date) VALUES (?,?,?,?) ON CONFLICT(sym) DO UPDATE "
+                             "SET pe=excluded.pe, mcap=excluded.mcap, pe_date=excluded.pe_date",
+                             (code, pe["pe"], pe["mcap"], today))
+                conn.commit()
+            except Exception as e:
+                err = err or str(e)
+    return dict(m or {}, pe=pe and pe["pe"], mcap=pe and pe["mcap"], error=err) if (m or pe) else (dict(error=err) if err else None)
 
 
 @app.get("/api/forward")
@@ -148,6 +176,7 @@ def symbol(code: str, at: dt.date | None = None, start: dt.date | None = Query(N
     R, res = _analysis(code, at, start)
     full = get_ohlcv(conn, code, 10000, refresh=False)
     fx, fx_err = get_foreign(conn, code, at) if len(code) == 3 else ([], None)   # khối ngoại: chỉ cổ phiếu
+    fundamentals = _fundamentals(code, at) if len(code) == 3 else None
     kind = ((res or {}).get("plan") or {}).get("kind")
     st = kind and conn.execute("SELECT * FROM backtest_stats WHERE plan=?", (kind.split(" (")[0],)).fetchone()
     lst = listing(conn)
@@ -155,7 +184,7 @@ def symbol(code: str, at: dt.date | None = None, start: dt.date | None = Query(N
     return dict(sym=code, groups=group_of(code, lst), name=info.get("name"), floor=info.get("floor"),
                 sector=info.get("icb_name"), unit="pt" if len(code) > 3 else "k",    # VNM, VND... là cổ phiếu
                 ohlcv=full,
-                analysis=res, signals=signals(120, code, at), at=at, start=start, foreign=fx, foreign_error=fx_err, plan_stats=dict(st) if st else None, in_watchlist=code in watchlist(conn))
+                analysis=res, signals=signals(120, code, at), at=at, start=start, foreign=fx, foreign_error=fx_err, plan_stats=dict(st) if st else None, fundamentals=fundamentals, in_watchlist=code in watchlist(conn))
 
 
 class WatchItem(BaseModel):

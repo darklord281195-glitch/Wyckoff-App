@@ -7,6 +7,7 @@ import { api, SymbolData, GROUP_LABEL, day, fullDate, num, pct, price } from "@/
 const WyckoffChart = dynamic(() => import("@/components/WyckoffChart"), { ssr: false });
 import PlanCard from "@/components/PlanCard";
 import ForeignCard from "@/components/ForeignCard";
+import FundamentalsCard from "@/components/FundamentalsCard";
 import WyckoffSchematic, { WYCKOFF_NOTES, DIST_NOTES } from "@/components/WyckoffSchematic";
 
 const STAGE_HINT: Record<string, string> = {
@@ -88,6 +89,8 @@ export default function SymbolPage({ params }: { params: Promise<{ code: string 
 
       <section className="card"><WyckoffChart data={d.ohlcv} analysis={a} unit={u} stats={d.plan_stats}
         sel={at ? { from: start ?? at, to: at } : null} onRange={(f, t) => pick(t, f)} /></section>
+
+      {u === "k" && <FundamentalsCard f={d.fundamentals ?? null} at={at} />}
 
       {u === "k" && <ForeignCard rows={d.foreign ?? []} error={d.foreign_error} />}
 

@@ -84,6 +84,9 @@ export type ForwardItem = { date: string; sym: string; kind: string; replay: boo
 export type Forward = { items: ForwardItem[]; summary: { n: number; filled: number; pending: number; fill_rate: number | null;
   closed: number; avg_r: number | null; win: number | null; sum_r: number | null; backtest_avg_r: number | null;
   first: string | null; last: string | null } };
+/** Chỉ số cơ bản từ BCTC quý (tỷ đồng, %). */
+export type Fundamentals = { fiscal?: string; np_ttm?: number | null; np_growth?: number | null; roe?: number | null;
+  debt_equity?: number | null; revenue_ttm?: number | null; pe?: number | null; mcap?: number | null; error?: string | null };
 export type SymbolData = {
   sym: string; groups: string[]; name: string | null; floor: string | null; sector: string | null; unit: "pt" | "k"; ohlcv: Ohlcv[]; analysis: Analysis | null;
   signals: Signal[]; in_watchlist: boolean;
@@ -91,6 +94,7 @@ export type SymbolData = {
   start: string | null; // đầu khoảng phân tích tự chọn (null = dò mặc định 190 phiên)
   foreign: Foreign[]; foreign_error: string | null;
   plan_stats: PlanStats | null;
+  fundamentals: Fundamentals | null;
 };
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
