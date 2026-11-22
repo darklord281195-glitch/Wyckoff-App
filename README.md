@@ -117,6 +117,8 @@ Link trang có `?from=…&at=…` nên tải lại hay chia sẻ vẫn đúng kh
 
 **Khối ngoại** (trang mã, chỉ cổ phiếu): cột giá trị mua ròng từng phiên (tỷ đồng), chọn **10 / 30 / 50 / 70 / 90 phiên**, kèm tổng ròng, tổng mua/bán, số phiên mua/bán ròng và room còn lại. Dữ liệu từ VNDirect finfo `/foreigns` (API không chính thức), tải khi mở trang mã rồi lưu bảng `foreign_trade`; chỉ tải lại khi có phiên giá mới. Khi xem phiên cũ thì lấy 90 phiên tới ngày đó. Số liệu có thể lệch đôi chút so với nguồn khác (cách tính thỏa thuận).
 
+**Ngành dẫn dắt** (thẻ trên Tổng quan): mỗi ngành ICB có ít nhất 3 mã GT ≥ 10 tỷ, trung vị RS20/RS60 so với VNINDEX, % mã ở Pha D/sát trần, tổng khối ngoại 10 phiên. Sắp xếp theo từng cột; bấm một ngành để lọc bảng mã theo ngành đó. Tính lúc quét (bảng `sector_stats`), xem lại được theo phiên. Chỉ để xem bối cảnh: `app.backtest --compare` không thấy lọc theo ngành mạnh giúp chọn mã tốt hơn.
+
 Trang **Tổng quan** có cột **NN 10p (tỷ)**: khối ngoại mua ròng 10 phiên tới phiên quét, sắp xếp được. Lần quét cuối ngày tải khối ngoại cho các mã có GT TB20 ≥ 1 tỷ (khoảng 240 mã, thêm khoảng 10 giây). Hiện "–" khi mã kém thanh khoản hoặc nguồn chưa có số liệu của đúng phiên quét.
 
 ## Danh mục đang giữ

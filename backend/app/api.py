@@ -39,6 +39,15 @@ def scan_dates():
     return [r[0] for r in conn.execute("SELECT DISTINCT date FROM scan_results ORDER BY date DESC")]
 
 
+@app.get("/api/sectors")
+def sectors_get(date: str | None = None):
+    """Sức mạnh ngành tại phiên quét (mặc định mới nhất), xếp theo RS20 giảm dần."""
+    d = _session(date)
+    rows = [dict(r) for r in conn.execute(
+        "SELECT icb, name, n, rs20, rs60, pct_d, fx10 FROM sector_stats WHERE date=? ORDER BY rs20 DESC", (d,))]
+    return dict(date=d, rows=rows)
+
+
 @app.get("/api/market")
 def market(date: str | None = None):
     d = _session(date)

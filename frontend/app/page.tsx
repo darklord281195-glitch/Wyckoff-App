@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import SectorCard from "@/components/SectorCard";
 import { api, Market, Row, Signal, GROUP_LABEL, STAGE_LABEL, fullDate, num, pct, price } from "@/lib/api";
 
 type SortKey = "sym" | "stage" | "chg" | "rs20" | "rs60" | "liq" | "dist" | "ready" | "rr" | "fx10";
@@ -137,6 +138,8 @@ export default function Home() {
           </ul>
         )}
       </section>
+
+      <SectorCard date={date} active={group} onPick={setGroup} />
 
       <section className="card" style={{ display: "grid", gap: 12 }}>
         <div className="row" style={{ justifyContent: "space-between" }}>

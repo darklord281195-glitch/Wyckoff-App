@@ -32,6 +32,10 @@ CREATE TABLE IF NOT EXISTS backtest_stats (       -- kết quả backtest theo l
 CREATE TABLE IF NOT EXISTS settings (             -- cài đặt người dùng (JSON theo key), vd vốn và ngưỡng rủi ro
   key TEXT PRIMARY KEY, value TEXT
 );
+CREATE TABLE IF NOT EXISTS sector_stats (         -- sức mạnh ngành ICB mỗi phiên quét (core/sectors.py)
+  date TEXT NOT NULL, icb TEXT NOT NULL, name TEXT, n INTEGER, rs20 REAL, rs60 REAL, pct_d REAL, fx10 REAL,
+  PRIMARY KEY (date, icb)
+);
 CREATE TABLE IF NOT EXISTS watchlist (
   sym TEXT PRIMARY KEY, note TEXT, added TEXT DEFAULT (date('now'))
 );

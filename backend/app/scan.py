@@ -18,6 +18,7 @@ from .core import signals as sig
 from .universe import universe, watchlist, refresh_listing, listing, INDEX
 from . import notify, charts, backup
 from .core import risk as risk_mod
+from .core import sectors as sectors_mod
 
 LIGHT_ICON = {"green": "🟢", "yellow": "🟡", "red": "🔴", "?": "⚪"}
 
@@ -120,6 +121,8 @@ def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log
     market = traffic_light(idx_res, breadth)
     conn.execute("INSERT OR REPLACE INTO scan_results(date,sym,stage,data) VALUES (?,?,?,?)",
                  (scan_date, INDEX, idx_res and idx_res["tag"], json.dumps(idx_res, ensure_ascii=False)))
+    if not symbols and not groups:          # quét ít mã thì mỗi ngành không đủ mẫu
+        sectors_mod.save(conn, scan_date, sectors_mod.sector_stats(results, lst, MIN_LIQ_BIL))
     # backtest: các loại tín hiệu mua có R trung bình âm theo màu đèn -> không báo mua, chỉ giữ cảnh báo và danh mục
     kinds = sig.HIDE.get(market["light"], ())
     hidden = sorted({x["sym"] for x in all_sigs if x["kind"] in kinds})

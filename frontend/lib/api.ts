@@ -67,6 +67,9 @@ export type JournalItem = { id: number; sym: string; kind: string | null; entry_
   diff: number | null; rule_done: boolean; flags: string[] };
 export type Journal = { items: JournalItem[]; summary: { n: number; open: number; win: number | null; avg_real: number | null;
   avg_rule: number | null; backtest_avg_r: number | null; n_flagged: number; r_lost: number; flag_counts: Record<string, number> } };
+/** Sức mạnh một ngành ICB tại phiên quét (/api/sectors). */
+export type SectorRow = { icb: string; name: string; n: number; rs20: number | null; rs60: number | null;
+  pct_d: number; fx10: number | null };
 export type SymbolData = {
   sym: string; groups: string[]; name: string | null; floor: string | null; sector: string | null; unit: "pt" | "k"; ohlcv: Ohlcv[]; analysis: Analysis | null;
   signals: Signal[]; in_watchlist: boolean;

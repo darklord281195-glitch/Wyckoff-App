@@ -95,3 +95,19 @@ def test_backfill_foreign_requests_long_history(tmp_path):
         return [dict(d="2026-11-20", buy=1.0, sell=0.0, net=1.0, net_vol=1, room=1, total_room=1)]
     assert backfill_foreign(conn, ["AAA", "BBB"], fetcher=fake) == []
     assert asked == [HISTORY_SESSIONS] * 2 and conn.execute("SELECT count(*) FROM foreign_trade").fetchone()[0] == 2
+
+
+def test_sector_stats_and_api(tmp_path, monkeypatch):
+    from app.core import sectors
+    lst = {s: dict(icb="8600", icb_name="Bất động sản") for s in ("A1", "A2", "A3")} | {"B1": dict(icb="8300", icb_name="Ngân hàng")}
+    res = {"A1": dict(liq=20, rs20=5, rs60=1, stage="D", fx10=2.0), "A2": dict(liq=20, rs20=-1, rs60=3, stage="BC", fx10=None),
+           "A3": dict(liq=20, rs20=3, rs60=2, stage="near", fx10=-1.0), "B1": dict(liq=50, rs20=9, rs60=9, stage="D", fx10=5.0),
+           "A4": dict(liq=1, rs20=99, rs60=99, stage="D")}                      # kém thanh khoản: bỏ
+    rows = sectors.sector_stats(res, lst, 10)
+    assert rows == [dict(icb="8600", name="Bất động sản", n=3, rs20=3, rs60=2, pct_d=67, fx10=1.0)]   # Ngân hàng < 3 mã
+    conn = connect(tmp_path / "t.db")
+    conn.execute("INSERT INTO scan_results(date,sym,stage,data) VALUES ('2026-11-20','A1','D','{}')")
+    sectors.save(conn, "2026-11-20", rows); conn.commit()
+    monkeypatch.setattr(api, "conn", conn)
+    got = TestClient(api.app).get("/api/sectors").json()
+    assert got["date"] == "2026-11-20" and got["rows"][0]["name"] == "Bất động sản"
