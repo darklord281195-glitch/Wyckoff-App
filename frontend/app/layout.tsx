@@ -22,6 +22,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/" className="brand">📊 Wyckoff Scanner</Link>
             <Link href="/" className="link">Tổng quan</Link>
             <Link href="/watchlist" className="link">Danh mục</Link>
+            <Link href="/dong-tien" className="link">Dòng tiền</Link>
             <Link href="/ket-qua" className="link">Kết quả</Link>
             <Link href="/symbol/VNINDEX" className="link">VNINDEX</Link>
           </nav>

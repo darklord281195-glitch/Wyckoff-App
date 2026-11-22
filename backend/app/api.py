@@ -14,6 +14,7 @@ from .core import risk as risk_mod
 from .core import journal as journal_mod
 from .core import forward as forward_mod
 from .core import fundamentals as fund
+from .core import flow as flow_mod
 from .universe import GROUP_NAMES, INDEX, group_of, watchlist, listing, sectors
 from . import scan as scan_mod
 from .core.signals import PRIORITY
@@ -66,6 +67,12 @@ def _fundamentals(code: str, at: str | None):
             except Exception as e:
                 err = err or str(e)
     return dict(m or {}, pe=pe and pe["pe"], mcap=pe and pe["mcap"], error=err) if (m or pe) else (dict(error=err) if err else None)
+
+
+@app.get("/api/flow")
+def flow(short: int = Query(5, ge=1, le=60), long: int = Query(20, ge=5, le=120), end: str | None = None):
+    """Dòng tiền theo ngành: tỷ trọng giá trị giao dịch kỳ gần (short phiên) so với kỳ trước (long phiên)."""
+    return flow_mod.sector_flow(conn, short, long, end)
 
 
 @app.get("/api/forward")

@@ -87,6 +87,13 @@ export type Forward = { items: ForwardItem[]; summary: { n: number; filled: numb
 /** Chỉ số cơ bản từ BCTC quý (tỷ đồng, %). */
 export type Fundamentals = { fiscal?: string; np_ttm?: number | null; np_growth?: number | null; roe?: number | null;
   debt_equity?: number | null; revenue_ttm?: number | null; pe?: number | null; mcap?: number | null; error?: string | null };
+/** Dòng tiền theo ngành (/api/flow). share/d_share: %, điểm %; value: tỷ đồng/phiên; ret/rel: %. */
+export type FlowRow = { icb: string; name: string; share: number; share_prev: number; d_share: number; value: number;
+  value_prev: number; value_chg: number | null; ret: number; rel: number; fx: number | null; label: string;
+  top: { sym: string; value: number; ret: number }[] };
+export type Flow = { end: string; start: string; prev_start: string; prev_end: string; short: number; long: number;
+  total: number; total_prev: number; idx_ret: number; rows: FlowRow[]; weeks: string[];
+  heat: { icb: string; name: string; cells: number[] }[]; error?: string };
 export type SymbolData = {
   sym: string; groups: string[]; name: string | null; floor: string | null; sector: string | null; unit: "pt" | "k"; ohlcv: Ohlcv[]; analysis: Analysis | null;
   signals: Signal[]; in_watchlist: boolean;
