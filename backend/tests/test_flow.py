@@ -1,12 +1,14 @@
 """Dòng tiền ngành: tỷ trọng giá trị giao dịch, phân loại tiền vào / bị xả / tiền rút ra."""
 from app.core.flow import sector_flow
 from app.db import connect
+from app.universe import SCHEMA as LISTING_SCHEMA
 
 DAYS = [f"2026-0{m}-{d:02d}" for m in (1, 2) for d in range(1, 29)][:40]
 
 
 def test_share_shift_and_labels(tmp_path):
     conn = connect(tmp_path / "t.db")
+    conn.executescript(LISTING_SCHEMA)
     conn.executemany("INSERT INTO listing(sym,floor,name,icb,icb_name) VALUES (?,?,?,?,?)",
                      [("AAA", "HOSE", "a", "1", "Ngành A"), ("BBB", "HOSE", "b", "2", "Ngành B"), ("CCC", "HOSE", "c", "3", "Ngành C")])
     rows = []

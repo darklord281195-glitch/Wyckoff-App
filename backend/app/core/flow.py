@@ -7,6 +7,8 @@ bị bán mạnh), nên đọc cùng với giá của ngành (bình quân theo g
 v trong ohlcv là triệu cp, c là nghìn đồng -> v × c = tỷ đồng."""
 from collections import defaultdict
 
+from ..universe import SCHEMA as LISTING_SCHEMA
+
 INDEX = "VNINDEX"
 MIN_SHARE = 0.3          # ngành có tỷ trọng dưới mức này (%) ở cả hai kỳ: quá nhỏ, bỏ khỏi biểu đồ
 WEEKS = 12               # số tuần (khối 5 phiên) cho bản đồ nhiệt
@@ -20,6 +22,7 @@ def _label(d_share, ret):
 
 def sector_flow(conn, short: int = 5, long: int = 20, end: str | None = None) -> dict:
     """So kỳ gần (short phiên tới `end`) với kỳ trước đó (long phiên liền trước)."""
+    conn.executescript(LISTING_SCHEMA)              # DB mới chưa tải danh sách mã: bảng listing chưa có
     q = f"SELECT d, c FROM ohlcv WHERE sym=?{' AND d<=?' if end else ''} ORDER BY d DESC LIMIT ?"
     need = max(short + long, WEEKS * 5) + 1
     idx = conn.execute(q, (INDEX, end, need) if end else (INDEX, need)).fetchall()[::-1]
