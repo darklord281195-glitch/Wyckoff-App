@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, Market, Row, Signal, GROUP_LABEL, STAGE_LABEL, fullDate, num, pct, price } from "@/lib/api";
 
-type SortKey = "sym" | "stage" | "chg" | "rs20" | "rs60" | "liq" | "dist" | "ready" | "rr";
+type SortKey = "sym" | "stage" | "chg" | "rs20" | "rs60" | "liq" | "dist" | "ready" | "rr" | "fx10";
 const isEarly = (r: Row) => (r.stage === "BC" || r.stage === "near") && (r.ready ?? 0) >= 70 && (r.dist ?? -99) >= -8;
 const STAGE_ORDER: Record<string, number> = { D: 0, near: 1, E: 2, BC: 3, below: 4, failed: 5, new: 6 };
 
@@ -22,19 +22,36 @@ export default function Home() {
   const [sort, setSort] = useState<{ k: SortKey; desc: boolean }>({ k: "stage", desc: false });
   const [err, setErr] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [dates, setDates] = useState<string[]>([]);   // các phiên đã quét, mới nhất trước
+  const [sel, setSel] = useState<string>("");          // phiên đang xem; "" = mới nhất (lưu ở URL ?date=)
+  const old = !!sel && sel !== dates[0];
 
-  const load = () =>
-    Promise.all([
-      api<Market>("/api/market"),
-      api<{ date: string; rows: Row[]; sectors: Record<string, string> }>("/api/scan/latest"),
-      api<Signal[]>("/api/signals?days=0"),
+  const load = (d = sel) => {
+    const qd = d ? "date=" + d : "";
+    return Promise.all([
+      api<Market>("/api/market?" + qd),
+      api<{ date: string; rows: Row[]; sectors: Record<string, string> }>("/api/scan/latest?" + qd),
+      api<Signal[]>("/api/signals?days=0" + (d ? "&until=" + d : "")),
+      api<string[]>("/api/scan/dates"),
     ])
-      .then(([m, s, g]) => {
-        setMarket(m); setRows(s.rows); setDate(s.date); setSigs(g); setSectorList(s.sectors ?? {}); setErr(null);
+      .then(([m, s, g, ds]) => {
+        setMarket(m); setRows(s.rows); setDate(s.date); setSigs(g); setSectorList(s.sectors ?? {}); setDates(ds); setErr(null);
       })
       .catch((e) => setErr(String(e)));
+  };
 
-  useEffect(() => { load(); }, []);
+  // đổi phiên: ghi vào URL (?date=) để tải lại / chia sẻ link vẫn đúng phiên
+  const pick = (d: string) => {
+    const v = d === dates[0] ? "" : d;
+    setSel(v); load(v);
+    router.replace(v ? "/?date=" + v : "/", { scroll: false });
+  };
+
+  useEffect(() => {
+    const d = new URLSearchParams(window.location.search).get("date") ?? "";
+    setSel(d); load(d);
+  }, []);
+  const at = old ? "?at=" + sel : "";
 
   // giống scan_allowed() ở backend: chỉ từ 15:00 thứ 2–6 giờ VN; kiểm tra lại mỗi 30 giây
   const vnOpen = () => { const n = new Date(Date.now() + 7 * 3600e3); return n.getUTCDay() >= 1 && n.getUTCDay() <= 5 && n.getUTCHours() >= 15; };
@@ -47,7 +64,7 @@ export default function Home() {
     catch (e) { setScanning(false); window.alert(String(e)); return; }   // vd 403 ngoài giờ cho phép
     const t = setInterval(async () => {
       const s = await api<{ running: boolean }>("/api/scan/status");
-      if (!s.running) { clearInterval(t); setScanning(false); load(); }
+      if (!s.running) { clearInterval(t); setScanning(false); load(""); }
     }, 4000);
   };
 
@@ -87,13 +104,25 @@ export default function Home() {
           </div>
         </div>
         <div className="row">
-          <span className="muted">Phiên {date ? fullDate(date) : "–"}</span>
-          <button className="btn" onClick={rescan} disabled={scanning || !canScan}
-            title={canScan ? undefined : "Chỉ quét được từ 15:00 thứ 2–6, sau khi phiên kết thúc"}>
-            {scanning ? "Đang quét…" : "Quét lại"}</button>
-          {!canScan && <span className="muted" style={{ fontSize: 12.5 }}>Quét từ 15:00 thứ 2–6</span>}
+          <label className="muted">Phiên{" "}
+            <select id="session" className="btn" value={date ?? ""} onChange={(e) => pick(e.target.value)}
+              disabled={dates.length < 2} title={dates.length < 2 ? "Mới có 1 phiên đã quét" : "Xem lại phiên đã quét"}>
+              {!date && <option value="">–</option>}
+              {dates.map((x, i) => <option key={x} value={x}>{fullDate(x)}{i === 0 ? " (mới nhất)" : ""}</option>)}
+            </select></label>
+          {!old && <>
+            <button className="btn" onClick={rescan} disabled={scanning || !canScan}
+              title={canScan ? undefined : "Chỉ quét được từ 15:00 thứ 2–6, sau khi phiên kết thúc"}>
+              {scanning ? "Đang quét…" : "Quét lại"}</button>
+            {!canScan && <span className="muted" style={{ fontSize: 12.5 }}>Quét từ 15:00 thứ 2–6</span>}
+          </>}
         </div>
       </section>
+
+      {old && date && <div className="notice">
+        Đang xem phiên cũ {fullDate(date)}: bảng, đèn và tín hiệu là kết quả quét của phiên này.
+        <button className="btn" onClick={() => pick(dates[0])}>Về phiên mới nhất</button>
+      </div>}
 
       <section className="card">
         <h2>Tín hiệu phiên {date ? fullDate(date) : ""}</h2>
@@ -102,7 +131,7 @@ export default function Home() {
             {sigs.map((s) => (
               <li key={s.sym + s.kind}>
                 <span className="pill">{s.kind}</span>{" "}
-                {s.is_new ? "🆕 " : ""}<Link href={`/symbol/${s.sym}`}><b>{s.sym}</b></Link> {s.text.replace(s.sym, "")}
+                {s.is_new ? "🆕 " : ""}<Link href={`/symbol/${s.sym}${at}`}><b>{s.sym}</b></Link> {s.text.replace(s.sym, "")}
               </li>
             ))}
           </ul>
@@ -119,7 +148,7 @@ export default function Home() {
             ))}
           </div>
           <div className="row">
-            <form onSubmit={(e) => { e.preventDefault(); if (q) router.push(`/symbol/${q}`); }}>
+            <form onSubmit={(e) => { e.preventDefault(); if (q) router.push(`/symbol/${q}${at}`); }}>
               <input id="search" type="search" placeholder="🔍 Mã (Enter để mở)" value={q} autoComplete="off"
                 aria-label="Tìm mã cổ phiếu" maxLength={10} style={{ width: 170 }}
                 onChange={(e) => setQ(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} />
@@ -144,13 +173,13 @@ export default function Home() {
               <tr>
                 {th("sym", "Mã")}{th("stage", "Pha")}<th>Giá</th>{th("chg", "%")}{th("ready", "Điểm")}
                 <th>Vùng vào</th><th>Cắt lỗ</th>{th("rr", "Lời/lỗ")}
-                {th("dist", "So trần")}{th("rs20", "RS20")}{th("rs60", "RS60")}{th("liq", "GT (tỷ)")}<th>Ghi chú</th>
+                {th("dist", "So trần")}{th("rs20", "RS20")}{th("rs60", "RS60")}{th("liq", "GT (tỷ)")}{th("fx10", "NN 10p (tỷ)")}<th>Ghi chú</th>
               </tr>
             </thead>
             <tbody>
               {view.map((r) => (
                 <tr key={r.sym}>
-                  <td title={r.name ?? ""}><Link href={`/symbol/${r.sym}`}><b>{r.sym}</b></Link>{" "}
+                  <td title={r.name ?? ""}><Link href={`/symbol/${r.sym}${at}`}><b>{r.sym}</b></Link>{" "}
                     <span className="muted" style={{ fontSize: 11.5 }}>{r.floor ?? ""}</span></td>
                   <td><span className={`pill ${r.stage}`}>{r.tag}</span>{r.weak_drop ? <span className="muted" title="Đợt giảm trước đó dưới 20%"> *</span> : null}</td>
                   <td className="n">{price(r.c)}</td>
@@ -165,6 +194,8 @@ export default function Home() {
                   <td className={`n ${(r.rs20 ?? 0) >= 0 ? "up" : "down"}`}>{pct(r.rs20)}</td>
                   <td className={`n ${(r.rs60 ?? 0) >= 0 ? "up" : "down"}`}>{pct(r.rs60)}</td>
                   <td className="n">{num(r.liq)}</td>
+                  <td className={`n ${r.fx10 == null ? "muted" : r.fx10 >= 0 ? "up" : "down"}`}>
+                    {r.fx10 == null ? "–" : (r.fx10 > 0 ? "+" : "") + num(r.fx10, 1)}</td>
                   <td className="muted" style={{ whiteSpace: "normal" }}>{r.extra}</td>
                 </tr>
               ))}
@@ -173,7 +204,7 @@ export default function Home() {
         </div>
         <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
           {view.length}/{rows.length} mã · Điểm = mức sẵn sàng tăng 0–100 · 🎯 giá đang trong vùng vào ·
-          Lời/lỗ tính tới mục tiêu Nhân–Quả · RS = chênh lệch % so với VNINDEX · So trần = khoảng cách tới trần (AR) · * đợt giảm trước đó yếu
+          Lời/lỗ tính tới mục tiêu Nhân–Quả · RS = chênh lệch % so với VNINDEX · So trần = khoảng cách tới trần (AR) · NN 10p = khối ngoại mua ròng 10 phiên · * đợt giảm trước đó yếu
         </p>
       </section>
     </>

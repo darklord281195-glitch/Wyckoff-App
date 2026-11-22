@@ -6,6 +6,7 @@ import { api, SymbolData, GROUP_LABEL, day, fullDate, num, pct, price } from "@/
 
 const WyckoffChart = dynamic(() => import("@/components/WyckoffChart"), { ssr: false });
 import PlanCard from "@/components/PlanCard";
+import ForeignCard from "@/components/ForeignCard";
 import WyckoffSchematic, { WYCKOFF_NOTES, DIST_NOTES } from "@/components/WyckoffSchematic";
 
 const STAGE_HINT: Record<string, string> = {
@@ -24,9 +25,26 @@ export default function SymbolPage({ params }: { params: Promise<{ code: string 
   const { code } = use(params);
   const [d, setD] = useState<SymbolData | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [at, setAt] = useState<string | null>(null);     // ngày đang xem (?at=); null = phiên mới nhất
+  const [start, setStart] = useState<string | null>(null); // đầu khoảng chọn trên biểu đồ (?from=), cuối khoảng = at
+  const [ready, setReady] = useState(false);              // đã đọc ?at=&from= từ URL
 
-  const load = () => api<SymbolData>(`/api/symbols/${code}`).then(setD).catch((e) => setErr(String(e)));
-  useEffect(() => { load(); }, [code]);
+  const qs = (a: string | null, s: string | null) =>
+    a ? "?" + (s ? "from=" + s + "&" : "") + "at=" + a : "";
+  const load = () => api<SymbolData>("/api/symbols/" + code + qs(at, start))
+    .then((x) => { setD(x); setErr(null); }).catch((e) => setErr(String(e)));
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    setAt(p.get("at")); setStart(p.get("at") ? p.get("from") : null); setReady(true);
+  }, [code]);
+  useEffect(() => { if (ready) load(); }, [code, at, start, ready]);
+
+  // đổi ngày / khoảng: ghi vào URL để tải lại / chia sẻ vẫn đúng
+  const pick = (a: string | null, s: string | null = null) => {
+    setAt(a || null); setStart(a ? s : null);
+    window.history.replaceState(null, "", qs(a || null, s) || window.location.pathname);
+  };
+  const pickDay = (v: string | null) => pick(v);
 
   const toggleWl = async () => {
     if (!d) return;
@@ -35,7 +53,7 @@ export default function SymbolPage({ params }: { params: Promise<{ code: string 
     load();
   };
 
-  if (err) return <div className="card">Lỗi: {err}</div>;
+  if (err) return <div className="card">Lỗi: {err}{at && <> <button className="btn" onClick={() => pickDay(null)}>Về phiên mới nhất</button></>}</div>;
   if (!d) return <div className="card">Đang tải {code}…</div>;
   const a = d.analysis, u = d.unit;
   const lv = (a?.levels ?? {}) as { support?: number; resistance?: number; invalid?: number };
@@ -54,13 +72,26 @@ export default function SymbolPage({ params }: { params: Promise<{ code: string 
         <div className="row">
           {a && <span className="mono" style={{ fontSize: 18 }}>{price(a.c, u)}{" "}
             <span className={a.chg >= 0 ? "up" : "down"}>{pct(a.chg, 2)}</span></span>}
+          <label className="muted">Ngày <input id="at" type="date" value={at ?? a?.d ?? ""} max={new Date().toISOString().slice(0, 10)}
+            onChange={(e) => pickDay(e.target.value)} /></label>
           {u === "k" && <button className="btn" onClick={toggleWl}>{d.in_watchlist ? "★ Bỏ theo dõi" : "☆ Theo dõi"}</button>}
         </div>
       </section>
 
-      <section className="card"><WyckoffChart data={d.ohlcv} weekly={d.weekly} analysis={a} unit={u} /></section>
+      {at && a && <div className="notice">
+        {start
+          ? <>Phân tích Wyckoff trong khoảng {fullDate(start)} – {fullDate(a.d)}: chỉ dò vùng trong khoảng này và chỉ dùng dữ liệu tới {fullDate(a.d)}.</>
+          : <>Đang xem {d.sym} tại phiên {fullDate(a.d)}: phân tích và kế hoạch chỉ dùng dữ liệu tới phiên này.</>}
+        {" "}Nến sau đó trên biểu đồ là diễn biến thực tế.
+        <button className="btn" onClick={() => pickDay(null)}>Về phiên mới nhất</button>
+      </div>}
 
-      {a?.plan && u === "k" && <PlanCard sym={d.sym} plan={a.plan} c={a.c} unit={u} />}
+      <section className="card"><WyckoffChart data={d.ohlcv} analysis={a} unit={u} stats={d.plan_stats}
+        sel={at ? { from: start ?? at, to: at } : null} onRange={(f, t) => pick(t, f)} /></section>
+
+      {u === "k" && <ForeignCard rows={d.foreign ?? []} error={d.foreign_error} />}
+
+      {a?.plan && u === "k" && <PlanCard sym={d.sym} plan={a.plan} c={a.c} unit={u} readOnly={!!at} />}
 
       {a && (
         <div className="grid2">

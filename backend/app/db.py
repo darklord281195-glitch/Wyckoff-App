@@ -21,6 +21,14 @@ CREATE TABLE IF NOT EXISTS telegram_sent (        -- phiên đã gửi Telegram:
 CREATE TABLE IF NOT EXISTS intraday_alerts (      -- cảnh báo giá trong phiên đã gửi: mỗi (ngày, mã, loại) 1 lần
   date TEXT NOT NULL, sym TEXT NOT NULL, kind TEXT NOT NULL, PRIMARY KEY (date, sym, kind)
 );
+CREATE TABLE IF NOT EXISTS foreign_trade (        -- khối ngoại theo phiên, giá trị tỷ đồng (core/foreign.py)
+  sym TEXT NOT NULL, d TEXT NOT NULL, buy REAL, sell REAL, net REAL, net_vol REAL, room REAL, total_room REAL,
+  PRIMARY KEY (sym, d)
+);
+CREATE TABLE IF NOT EXISTS backtest_stats (       -- kết quả backtest theo loại kế hoạch (app.backtest); hit_t1/stop/timeout là %
+  plan TEXT PRIMARY KEY, n INTEGER, hit_t1 REAL, stop REAL, timeout REAL, avg_r REAL, ci_lo REAL, ci_hi REAL,
+  avg_days REAL, period TEXT, slip REAL, updated TEXT
+);
 CREATE TABLE IF NOT EXISTS watchlist (
   sym TEXT PRIMARY KEY, note TEXT, added TEXT DEFAULT (date('now'))
 );

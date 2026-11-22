@@ -30,6 +30,7 @@ export type Row = {
   weak_drop: boolean; levels: Levels; pos52: number;
   ready: number | null; rr: number | null; plan_kind: string | null;
   entry_lo: number | null; entry_hi: number | null; stop: number | null; in_zone: boolean | null;
+  fx10: number | null;   // khối ngoại mua ròng 10 phiên, tỷ đồng
 };
 export type Market = { date: string; light: "green" | "yellow" | "red" | "?"; text: string; c: number; chg: number; tag: string };
 export type Signal = { date: string; sym: string; kind: string; is_new: number; text: string };
@@ -45,9 +46,19 @@ export type Position = {
 /** Một lần bán; pnl % và pnl_vnd đã trừ phí mua 0,15%, bán 0,25%. */
 export type Sale = { id: number | null; d: string; px: number; qty: number | null; pos_id: number; sym: string;
   entry_d: string; entry_px: number; pnl: number; pnl_vnd: number | null };
+/** Khối ngoại một phiên; buy/sell/net theo tỷ đồng, room = số cp nước ngoài còn được mua. */
+export type Foreign = { d: string; buy: number; sell: number; net: number; net_vol: number | null;
+  room: number | null; total_room: number | null };
+/** Kết quả backtest của một loại kế hoạch (app.backtest); hit_t1/stop/timeout là %. */
+export type PlanStats = { plan: string; n: number; hit_t1: number; stop: number; timeout: number; avg_r: number;
+  ci_lo: number; ci_hi: number; avg_days: number; period: string; slip: number; updated: string };
 export type SymbolData = {
-  sym: string; groups: string[]; name: string | null; floor: string | null; sector: string | null; unit: "pt" | "k"; ohlcv: Ohlcv[]; weekly?: Ohlcv[]; analysis: Analysis | null;
+  sym: string; groups: string[]; name: string | null; floor: string | null; sector: string | null; unit: "pt" | "k"; ohlcv: Ohlcv[]; analysis: Analysis | null;
   signals: Signal[]; in_watchlist: boolean;
+  at: string | null;   // ngày đang xem (null = phiên mới nhất)
+  start: string | null; // đầu khoảng phân tích tự chọn (null = dò mặc định 190 phiên)
+  foreign: Foreign[]; foreign_error: string | null;
+  plan_stats: PlanStats | null;
 };
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {

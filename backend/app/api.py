@@ -1,14 +1,15 @@
 """REST API cho web Next.js.  Chạy: .venv\\Scripts\\uvicorn app.api:app --port 8000"""
 import json, threading, datetime as dt
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .db import connect
 from .core.data import get_ohlcv
-from .core.wyckoff import analyse, trim
+from .core.wyckoff import analyse, trim, ANALYSIS_DAYS
 from .core.market import traffic_light
 from .core.positions import simulate
+from .core.foreign import get_foreign
 from .universe import GROUP_NAMES, INDEX, group_of, watchlist, listing, sectors
 from . import scan as scan_mod
 from .core.signals import PRIORITY
@@ -22,21 +23,31 @@ _lock = threading.Lock()
 _scan_state = {"running": False, "last": None}
 
 
-def _latest_date():
-    return conn.execute("SELECT max(date) FROM scan_results").fetchone()[0]
+def _session(date: str | None = None):
+    """Phiên đã quét: `date` nếu có trong DB (không có thì 404), mặc định phiên mới nhất."""
+    if not date:
+        return conn.execute("SELECT max(date) FROM scan_results").fetchone()[0]
+    if not conn.execute("SELECT 1 FROM scan_results WHERE date=? LIMIT 1", (date,)).fetchone():
+        raise HTTPException(404, f"Chưa có kết quả quét phiên {date}")
+    return date
+
+
+@app.get("/api/scan/dates")
+def scan_dates():
+    return [r[0] for r in conn.execute("SELECT DISTINCT date FROM scan_results ORDER BY date DESC")]
 
 
 @app.get("/api/market")
-def market():
-    d = _latest_date()
+def market(date: str | None = None):
+    d = _session(date)
     row = conn.execute("SELECT data FROM scan_results WHERE sym=? AND date=?", (INDEX, d)).fetchone() if d else None
     res = json.loads(row[0]) if row else None
     return dict(date=d, **traffic_light(res, res and res.get("breadth")), tag=res and res.get("tag"))
 
 
 @app.get("/api/scan/latest")
-def scan_latest(group: str | None = None):
-    d = _latest_date()
+def scan_latest(group: str | None = None, date: str | None = None):
+    d = _session(date)
     if not d:
         return dict(date=None, rows=[])
     wl = set(watchlist(conn))
@@ -56,61 +67,67 @@ def scan_latest(group: str | None = None):
                          tag=r["tag"], stage=r["stage"], c=r["c"], chg=r["chg"],
                          liq=r["liq"], rs5=r.get("rs5"), rs20=r.get("rs20"), rs60=r.get("rs60"),
                          dist=r.get("dist"), extra=r.get("extra"), weak_drop=r.get("weak_drop"),
-                         levels=r.get("levels"), pos52=r.get("pos52")))
+                         levels=r.get("levels"), pos52=r.get("pos52"), fx10=r.get("fx10")))
     return dict(date=d, rows=rows, groups=GROUP_NAMES, sectors=sectors(conn))
 
 
 @app.get("/api/signals")
-def signals(days: int = 30, sym: str | None = None):
-    q = "SELECT date, sym, kind, is_new, text FROM signals WHERE date >= date((SELECT max(date) FROM signals), ?)"
-    args = [f"-{days} day"]
+def signals(days: int = 30, sym: str | None = None, until: str | None = None):
+    """Tín hiệu `days` ngày tính lùi từ phiên `until` (mặc định phiên mới nhất)."""
+    end = until or conn.execute("SELECT max(date) FROM signals").fetchone()[0]
+    q = "SELECT date, sym, kind, is_new, text FROM signals WHERE date >= date(?, ?) AND date <= ?"
+    args = [end, f"-{days} day", end]
     if sym:
         q += " AND sym=?"; args.append(sym.upper())
     order = " ".join(f"WHEN '{k}' THEN {p}" for k, p in PRIORITY.items())
     return [dict(r) for r in conn.execute(q + f" ORDER BY date DESC, CASE kind {order} ELSE 99 END, sym", args)]
 
 
-def _analysis(code: str, at: str | None = None):
+MIN_LOOKBACK = 60                  # khoảng tự chọn ngắn hơn thì nới ra (distribution cần ≥ 60 phiên)
+
+
+def _analysis(code: str, at: str | None = None, start: str | None = None):
     """(R, analyse) của mã tại phiên `at` (mặc định phiên mới nhất), chỉ dùng dữ liệu tới phiên đó.
+    start: chỉ dò vùng Wyckoff trong các phiên từ `start` tới `at` (khoảng người dùng chọn trên biểu đồ).
     Mã cổ phiếu VN có 3 ký tự; dài hơn là chỉ số (VNINDEX, VN30...) nên không làm tròn bước giá."""
+    today = dt.date.fromisoformat(at) if at else dt.date.today()
+    days = max(ANALYSIS_DAYS, (today - dt.date.fromisoformat(start)).days + 30) if start else ANALYSIS_DAYS
+    span = max(1000, (dt.date.today() - today).days + days + 30)      # đủ lịch sử để cắt tới `at`
     try:
-        IDX = get_ohlcv(conn, INDEX, 1000, refresh=False)
-        R = get_ohlcv(conn, code, 1000, refresh=not conn.execute(
+        IDX = get_ohlcv(conn, INDEX, span, refresh=False)
+        R = get_ohlcv(conn, code, span, refresh=not conn.execute(
             "SELECT 1 FROM ohlcv WHERE sym=? LIMIT 1", (code,)).fetchone())
     except Exception as e:
         raise HTTPException(502, str(e))
     if at:
         R = [r for r in R if r["d"] <= at]; IDX = [r for r in IDX if r["d"] <= at]
-    today = dt.date.fromisoformat(at) if at else None
-    R, IDX = trim(R, today=today), trim(IDX, today=today)
+    R, IDX = trim(R, days, today), trim(IDX, days, today)
     if not R:
         raise HTTPException(404, f"Không có dữ liệu {code}" + (f" tới ngày {at}" if at else ""))
     floor = None if len(code) > 3 else (listing(conn).get(code) or {}).get("floor") or "UPCOM"
-    return R, analyse(R, IDX if code != INDEX else None, floor)
-
-
-def weekly(R):
-    """Gộp nến ngày thành nến tuần; khóa = ngày thứ 2 của tuần (frontend gắn mốc sự kiện theo cùng khóa)."""
-    out = {}
-    for r in R:
-        d = dt.date.fromisoformat(r["d"]); k = (d - dt.timedelta(days=d.weekday())).isoformat()
-        w = out.get(k)
-        if w is None:
-            out[k] = dict(r, d=k)
-        else:
-            w.update(h=max(w["h"], r["h"]), l=min(w["l"], r["l"]), c=r["c"], v=round(w["v"] + r["v"], 3))
-    return list(out.values())
+    lookback = max(MIN_LOOKBACK, sum(r["d"] >= start for r in R)) if start else 190
+    return R, analyse(R, IDX if code != INDEX else None, floor, lookback, keep_distrib=bool(start))
 
 
 @app.get("/api/symbols/{code}")
-def symbol(code: str, days: int = 260):
+def symbol(code: str, at: dt.date | None = None, start: dt.date | None = Query(None, alias="from")):
+    """Phân tích tại phiên `at` (chỉ dữ liệu tới đó; có `from` thì chỉ dò vùng trong khoảng from–at).
+    Biểu đồ nhận toàn bộ lịch sử ngày, kể cả sau `at`, để so với diễn biến thực tế (frontend gộp nến tuần)."""
     code = code.upper()
-    R, res = _analysis(code)
+    at, start = at and at.isoformat(), start and start.isoformat()
+    if start and at and start >= at:
+        raise HTTPException(400, "Ngày bắt đầu phải trước ngày kết thúc")
+    R, res = _analysis(code, at, start)
+    full = get_ohlcv(conn, code, 10000, refresh=False)
+    fx, fx_err = get_foreign(conn, code, at) if len(code) == 3 else ([], None)   # khối ngoại: chỉ cổ phiếu
+    kind = ((res or {}).get("plan") or {}).get("kind")
+    st = kind and conn.execute("SELECT * FROM backtest_stats WHERE plan=?", (kind.split(" (")[0],)).fetchone()
     lst = listing(conn)
     info = lst.get(code, {})
     return dict(sym=code, groups=group_of(code, lst), name=info.get("name"), floor=info.get("floor"),
                 sector=info.get("icb_name"), unit="pt" if len(code) > 3 else "k",    # VNM, VND... là cổ phiếu
-                ohlcv=R[-days:], weekly=weekly(get_ohlcv(conn, code, 1100, refresh=False)), analysis=res, signals=signals(120, code), in_watchlist=code in watchlist(conn))
+                ohlcv=full,
+                analysis=res, signals=signals(120, code, at), at=at, start=start, foreign=fx, foreign_error=fx_err, plan_stats=dict(st) if st else None, in_watchlist=code in watchlist(conn))
 
 
 class WatchItem(BaseModel):

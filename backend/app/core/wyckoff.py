@@ -162,9 +162,11 @@ def classify(r):
     return dict(variant=v, phase=ph, title=title, note=note)
 
 
-def analyse(R, IDX=None, floor=None):
+def analyse(R, IDX=None, floor=None, lookback=190, keep_distrib=False):
     """Trả dict kết quả. R phải là dữ liệu đã cắt ~420 ngày (dùng trim()).
-    floor = sàn niêm yết (HOSE/HNX/UPCOM) để làm tròn giá kế hoạch theo bước giá; None = không làm tròn."""
+    floor = sàn niêm yết (HOSE/HNX/UPCOM) để làm tròn giá kế hoạch theo bước giá; None = không làm tròn.
+    lookback = số phiên cuối được dò vùng tích lũy/phân phối (trang mã cho người dùng tự chọn khoảng).
+    keep_distrib = giữ vùng phân phối dù sau đó đã có vùng tích lũy mới (người dùng tự chọn khoảng để xem cả hai)."""
     n = len(R)
     if n < 120:
         return None
@@ -181,16 +183,16 @@ def analyse(R, IDX=None, floor=None):
     )
     base["pos52"] = round((c - base["lo52"]) / max(base["hi52"] - base["lo52"], 1e-9) * 100)
     base.update(rs_vs_index(R, IDX))
-    base["distrib"] = distribution(R)
+    base["distrib"] = distribution(R, lookback)
 
-    sc, ar, mlo_i = find_range(R)
+    sc, ar, mlo_i = find_range(R, lookback)
     if ar is None or ar <= sc + 2:
         out = dict(base, tag="mới tạo đáy", stage="new", events=[], range=None, levels={})
         out["schema"] = classify(out)
         return out
 
     dd = base["distrib"]
-    if dd and dd["events"][-1]["d"] < R[sc]["d"]:
+    if dd and dd["events"][-1]["d"] < R[sc]["d"] and not keep_distrib:
         base["distrib"] = None           # phân phối đã xong, giá đã tạo vùng tích lũy mới sau đó
     hi_before = max(r["h"] for r in R[max(0, sc-250):sc+1])
     drop = 1 - R[sc]["l"] / hi_before

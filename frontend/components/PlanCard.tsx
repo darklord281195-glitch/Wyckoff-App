@@ -6,7 +6,8 @@ import { Plan, api, num, pct, price } from "@/lib/api";
 const LS_KEY = "wyckoff-sizing";
 
 /** Kế hoạch giao dịch: vùng vào, cắt lỗ, mục tiêu Nhân–Quả, điểm sẵn sàng, tính khối lượng và ghi nhận lệnh mua. */
-export default function PlanCard({ sym, plan, c, unit }: { sym: string; plan: Plan; c: number; unit: "pt" | "k" }) {
+/** readOnly: đang xem phiên cũ -> ẩn phần ghi nhận lệnh mua */
+export default function PlanCard({ sym, plan, c, unit, readOnly }: { sym: string; plan: Plan; c: number; unit: "pt" | "k"; readOnly?: boolean }) {
   const [capital, setCapital] = useState(100);      // triệu đồng
   const [riskPct, setRiskPct] = useState(1);        // % vốn chấp nhận mất mỗi lệnh
   const [buyVnd, setBuyVnd] = useState(Math.round(c * 1000));   // giá mua thực tế (đồng)
@@ -88,7 +89,7 @@ export default function PlanCard({ sym, plan, c, unit }: { sym: string; plan: Pl
                 <dt>Giá trị lệnh</dt><dd>{num(value / 1e6, 1)} triệu ({num(value / (capital * 1e6) * 100)}% vốn)</dd>
               </dl>
             ) : <p className="muted">Chưa có điểm vào để tính.</p>}
-            <div className="row" style={{ marginTop: 8 }}>
+            {!readOnly && <div className="row" style={{ marginTop: 8 }}>
               <label className="muted">Giá mua <input id="buy-px" type="number" value={buyVnd} min={1} step={10}
                 onChange={(e) => setBuyVnd(+e.target.value)} style={{ width: 100 }} /> đ</label>
               <label className="muted">Số lượng <input id="buy-qty" type="number" value={buyQty} min={1} step={100}
@@ -100,7 +101,7 @@ export default function PlanCard({ sym, plan, c, unit }: { sym: string; plan: Pl
                 onChange={(e) => setBuyDate(e.target.value)} /></label>
               <button className="btn primary" onClick={record} disabled={!plan.stop && !(+buyStop > 0)}>
                 Ghi nhận đã mua{qty ? ` ${num(qty)} cp` : ""}</button>
-            </div>
+            </div>}
             {msg && <p className="muted" style={{ margin: "6px 0 0" }}>
               {msg} {msg.startsWith("Đã") && <Link href="/watchlist">Xem ở Danh mục</Link>}</p>}
           </div>

@@ -33,8 +33,16 @@ copy ..\.env.example ..\.env
 | Chỉ một số mã / ngành | `scripts\scan.bat --symbols TCH,DPG` · `--groups ck,bds` |
 | Tự động: quét 15:30 + cảnh báo trong phiên 9:10–14:45, thứ 2–6 | `powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1` |
 | Cảnh báo trong phiên, chạy thử 1 lần | `scripts\intraday.bat --dry-run` |
+| Tạo lại kết quả các phiên cũ (không tải dữ liệu, không gửi Telegram) | `scripts\scan.bat --from 2026-11-01 --to 2026-11-19` |
 
 Log mỗi lần quét: `logs\scan-YYYYMMDD.log`.
+
+**Xem lại phiên cũ.** Mỗi lần quét lưu kết quả theo ngày phiên (ngày của nến VNINDEX cuối, không phải ngày bấm quét).
+- Trang Tổng quan có ô **Phiên** để chọn các phiên đã quét. Khi xem phiên cũ thì nút Quét lại bị ẩn.
+- Trang mã có ô **Ngày**: chọn ngày nào cũng được, app tính lại phân tích và kế hoạch chỉ với dữ liệu tới ngày đó. Khi xem ngày cũ thì phần ghi nhận lệnh mua bị ẩn.
+- `--from/--to` tạo lại các phiên theo thứ tự tăng dần, để cờ 🆕 (tín hiệu mới so với phiên trước) đúng. Mỗi phiên mất khoảng 1,5 giây.
+- Một phiên cần ít nhất 120 nến trước đó. Với dữ liệu tải sẵn (khoảng 600 ngày) thì phiên xa nhất tạo lại được là khoảng 6 tháng sau ngày đầu có dữ liệu. Muốn xa hơn thì chạy `app.backtest --backfill` trước.
+- Watchlist và danh sách mã dùng bản hiện tại. Danh mục chỉ tính các lệnh đã mua tới phiên đó và chưa bán hết.
 
 ## Tín hiệu
 | Tín hiệu | Điều kiện (rút gọn) |
@@ -91,7 +99,25 @@ Mỗi cảnh báo gửi tối đa 1 lần/ngày. Đây chỉ là **chú ý**: lu
 - Tái tích lũy: vùng sau nhịp điều chỉnh < 20% (nghỉ giữa xu hướng tăng). App chưa báo mua loại này.
 - Tái phân phối: thủng đáy vùng với KL ≥ 1,5 lần TB20 khi MA50 < MA200 (giảm tiếp, không phải Spring).
 
-Trang mã có nút **Ngày / Tuần** trên biểu đồ: khung tuần (~3 năm) để xem bối cảnh; mốc Wyckoff vẫn tính theo ngày.
+Biểu đồ trên trang mã có 2 khung nến **Ngày / Tuần**, vẽ toàn bộ lịch sử (kéo/cuộn để xem cũ hơn). Khung chỉ đổi cách vẽ. Phân tích, mốc Wyckoff và kế hoạch vẫn tính theo ngày trên cửa sổ 420 ngày. Muốn có lịch sử dài thì chạy `app.backtest --backfill` trước.
+
+**Phân tích một khoảng tự chọn:** bấm **↔ Chọn khoảng phân tích** trên biểu đồ rồi kéo chuột qua một đoạn, ví dụ 08/2025 → 12/2025. App phân tích lại tại ngày cuối của khoảng:
+- chỉ dùng dữ liệu tới ngày đó, và chỉ dò vùng tích lũy/phân phối trong khoảng đã chọn (tối thiểu 60 phiên);
+- giữ cả vùng phân phối lẫn vùng tích lũy nếu khoảng chọn có cả hai (mặc định app bỏ phân phối cũ khi đã có tích lũy mới);
+- nến sau khoảng chọn vẫn hiện trên biểu đồ để so với diễn biến thực tế.
+
+Link trang có `?from=…&at=…` nên tải lại hay chia sẻ vẫn đúng khoảng.
+
+**Kịch bản Wyckoff** (nút **Kịch bản** trên khung Ngày, mặc định bật): vẽ đường đứt nét từ phiên phân tích theo kế hoạch giao dịch.
+- Xanh = kịch bản thành công: về/vượt vùng vào, rồi lần lượt tới T1, T2… Đỏ = kịch bản hỏng: từ điểm vào về cắt lỗ.
+- Thời gian là ước lượng: vào sau 1 phiên nếu đang trong vùng, không thì 5 phiên; T1 sau 15 phiên (trong hạn 20 phiên của cắt lỗ theo thời gian); mỗi mục tiêu sau thêm 15 phiên.
+- Chỉ vẽ khi kế hoạch có vùng vào, cắt lỗ và mục tiêu cao hơn điểm vào (không vẽ cho "Không vào", "Đang tăng (Pha E)").
+- Đây là minh họa kế hoạch, không phải dự báo. Khi xem phiên cũ, kịch bản nằm đè lên nến thực tế để so.
+- Dưới kịch bản có **tỷ lệ lịch sử** của loại kế hoạch đó (chạm T1, cắt lỗ, hết thời gian, R TB và KTC95%), lấy từ lần chạy `app.backtest` đầy đủ gần nhất (bảng `backtest_stats`). Chạy backtest lại khi đổi luật để số liệu khớp.
+
+**Khối ngoại** (trang mã, chỉ cổ phiếu): cột giá trị mua ròng từng phiên (tỷ đồng), chọn **10 / 30 / 50 / 70 / 90 phiên**, kèm tổng ròng, tổng mua/bán, số phiên mua/bán ròng và room còn lại. Dữ liệu từ VNDirect finfo `/foreigns` (API không chính thức), tải khi mở trang mã rồi lưu bảng `foreign_trade`; chỉ tải lại khi có phiên giá mới. Khi xem phiên cũ thì lấy 90 phiên tới ngày đó. Số liệu có thể lệch đôi chút so với nguồn khác (cách tính thỏa thuận).
+
+Trang **Tổng quan** có cột **NN 10p (tỷ)**: khối ngoại mua ròng 10 phiên tới phiên quét, sắp xếp được. Lần quét cuối ngày tải khối ngoại cho các mã có GT TB20 ≥ 1 tỷ (khoảng 240 mã, thêm khoảng 10 giây). Hiện "–" khi mã kém thanh khoản hoặc nguồn chưa có số liệu của đúng phiên quét.
 
 ## Danh mục đang giữ
 Trên trang mã, mục Kế hoạch giao dịch, bấm **Ghi nhận đã mua**. Có thể sửa giá mua; nếu mua từ trước thì chọn ngày mua. Cắt lỗ và mục tiêu được **chốt theo kế hoạch tại ngày mua**, không đổi theo các lần quét sau. Mã được tự thêm vào watchlist.
@@ -120,13 +146,17 @@ Cách chạy:
   - các kế hoạch khác: lệnh giới hạn ở cận trên vùng
 - Lệnh bán theo đúng luật của Danh mục.
 - Phí: 0,15% mỗi chiều, bán thêm thuế 0,1%.
+- Trượt giá: 0,25% mỗi chiều (mua cao hơn, bán thấp hơn giá lý thuyết). Đổi bằng `--slip 0.5`, hoặc `--slip 0` để so với bản không trượt giá.
 
-Kết quả tính theo **R** (lời/lỗ chia rủi ro ban đầu). Báo cáo chia theo loại tín hiệu, đèn thị trường lúc báo, điểm sẵn sàng và năm. Chi tiết từng lệnh ghi vào `logs\backtest-YYYYMMDD.csv`.
+Kết quả tính theo **R** (lời/lỗ sau phí và trượt giá, chia rủi ro ban đầu). Báo cáo chia theo loại tín hiệu, loại kế hoạch, đèn thị trường lúc báo, điểm sẵn sàng và năm. Chi tiết từng lệnh ghi vào `logs\backtest-YYYYMMDD.csv`.
+- **KTC95% R**: khoảng tin cậy 95% của R TB. Khoảng chứa 0 nghĩa là chưa chắc nhóm đó có lợi thế.
+- Dấu `*` sau số lệnh: nhóm dưới 30 lệnh, kết quả chưa đáng tin.
+- Chạy đủ mọi mã (không `--symbols`) thì thống kê theo loại kế hoạch được lưu cho trang mã (dòng tỷ lệ dưới kịch bản).
 
 Giới hạn:
 - Chỉ có mã đang niêm yết, mã đã hủy niêm yết không có trong dữ liệu.
 - Giá đã điều chỉnh.
-- Không tính trượt giá.
+- Trượt giá là một mức cố định, chưa theo thanh khoản từng mã.
 
 Khi chỉnh tham số, so sánh hai giai đoạn (vd `--to 2023-12-31` rồi `--from 2024-01-01`) để tránh khớp quá mức với dữ liệu cũ.
 

@@ -11,6 +11,7 @@ from .config import LOG_DIR, WEB_URL, MIN_LIQ_BIL
 from . import fmt
 from .db import connect
 from .core.data import get_ohlcv, sync_many
+from .core.foreign import sync_foreign, net_sum
 from .core.wyckoff import analyse, trim
 from .core.market import traffic_light
 from .core import signals as sig
@@ -28,10 +29,22 @@ def setup_log():
     return logging.getLogger("scan")
 
 
-def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log=None):
+def _upto(R, at):
+    """Nến tới phiên `at` rồi cắt cửa sổ phân tích tính từ ngày đó (at=None: như phiên mới nhất)."""
+    if not at:
+        return trim(R)
+    return trim([r for r in R if r["d"] <= at], today=dt.date.fromisoformat(at))
+
+
+def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log=None, at=None):
+    """at='YYYY-MM-DD': tạo lại kết quả của phiên cũ từ dữ liệu đã có, không tải mới, không gửi Telegram."""
     log = log or logging.getLogger("scan")
     conn = connect()
-    IDX = trim(get_ohlcv(conn, INDEX, 600, refresh=refresh))
+    if at:
+        refresh, dry_run, photos = False, True, False
+    IDX = _upto(get_ohlcv(conn, INDEX, 4000 if at else 600, refresh=refresh), at)
+    if not IDX or (at and IDX[-1]["d"] != at):
+        raise ValueError(f"Phiên {at} không có nến VNINDEX (không phải ngày giao dịch hoặc chưa có dữ liệu)")
     idx_res = analyse(IDX)
     scan_date = IDX[-1]["d"]
 
@@ -43,7 +56,11 @@ def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log
             log.warning("Không cập nhật được danh sách mã (%s), dùng danh sách cũ", e)
     lst = listing(conn)
     held = {}                                     # lệnh đang giữ theo mã
-    for p in conn.execute("SELECT * FROM positions WHERE status='open'"):
+    if at:     # phiên cũ: lệnh đã mua tới phiên đó và chưa bán hết trước phiên đó
+        held_q = ("SELECT * FROM positions WHERE entry_d<=? AND (exit_d IS NULL OR exit_d>?)", (scan_date, scan_date))
+    else:
+        held_q = ("SELECT * FROM positions WHERE status='open'", ())
+    for p in conn.execute(*held_q):
         held.setdefault(p["sym"], []).append(dict(p, targets=json.loads(p["targets"] or "[]")))
     syms = symbols or universe(conn, groups)
     results, all_sigs, errors = {}, [], []
@@ -51,14 +68,26 @@ def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log
         t0 = time.time()
         errors += sync_many(conn, syms, 500, workers=6)
         log.info("Tải dữ liệu %d mã trong %.0f giây (lỗi %d)", len(syms), time.time() - t0, len(errors))
+        # khối ngoại: chỉ mã có GT TB20 ≥ 1 tỷ (mã kém thanh khoản hầu như không có giao dịch nước ngoài)
+        t0, fx_syms = time.time(), []
+        for s in syms:
+            R0 = get_ohlcv(conn, s, 60, refresh=False)
+            if len(R0) >= 20 and sum(r["v"] for r in R0[-20:]) / 20 * R0[-1]["c"] >= 1:
+                fx_syms.append(s)
+        try:
+            fx_err = sync_foreign(conn, fx_syms, scan_date)
+            log.info("Khối ngoại %d mã trong %.0f giây (lỗi %d)", len(fx_syms), time.time() - t0, len(fx_err))
+        except Exception as e:                  # khối ngoại lỗi không được làm hỏng lần quét
+            log.warning("Không tải được khối ngoại: %s", e)
     skipped = 0
     for i, s in enumerate(syms, 1):
         try:
-            R = trim(get_ohlcv(conn, s, 500, refresh=False))
+            R = _upto(get_ohlcv(conn, s, 4000 if at else 500, refresh=False), at)
             if len(R) < 120 or R[-1]["d"] != scan_date:
                 skipped += 1; continue
             r = analyse(R, IDX, (lst.get(s) or {}).get("floor") or "UPCOM")
             if not r: continue
+            r["fx10"] = net_sum(conn, s, scan_date)          # khối ngoại mua ròng 10 phiên (tỷ đồng)
             results[s] = r
             prev_row = conn.execute("SELECT data FROM scan_results WHERE sym=? AND date<? ORDER BY date DESC LIMIT 1",
                                     (s, scan_date)).fetchone()
@@ -68,7 +97,7 @@ def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log
             conn.execute("DELETE FROM signals WHERE date=? AND sym=?", (scan_date, s))   # quét lại cùng ngày
             xs = sig.build(s, r, prev, s in wl)
             if s in held:      # R chỉ có ~420 ngày, lệnh có thể mua sớm hơn -> lấy đủ lịch sử
-                xs += sig.position_alerts(s, held[s], get_ohlcv(conn, s, 4000, refresh=False), r.get("rs20"))
+                xs += sig.position_alerts(s, held[s], [b for b in get_ohlcv(conn, s, 4000, refresh=False) if b["d"] <= scan_date], r.get("rs20"))
             for x in xs:
                 had = conn.execute("SELECT 1 FROM signals WHERE sym=? AND kind=? AND date<? ORDER BY date DESC LIMIT 1",
                                    (s, x["kind"], scan_date)).fetchone()
@@ -169,8 +198,23 @@ def main():
     ap.add_argument("--groups"); ap.add_argument("--symbols")
     ap.add_argument("--dry-run", action="store_true"); ap.add_argument("--no-photo", action="store_true")
     ap.add_argument("--offline", action="store_true", help="không tải dữ liệu mới, dùng cache")
+    ap.add_argument("--from", dest="since", metavar="YYYY-MM-DD",
+                    help="tạo lại kết quả các phiên cũ từ ngày này (không tải dữ liệu, không gửi Telegram)")
+    ap.add_argument("--to", metavar="YYYY-MM-DD", help="cùng --from: tới ngày này (mặc định = --from)")
     a = ap.parse_args()
     log = setup_log()
+    if a.since:
+        conn = connect()
+        days = [r[0] for r in conn.execute("SELECT d FROM ohlcv WHERE sym=? AND d>=? AND d<=? ORDER BY d",
+                                           (INDEX, a.since, a.to or a.since))]
+        if not days:
+            log.error("Không có phiên giao dịch nào trong khoảng %s–%s", a.since, a.to or a.since); sys.exit(1)
+        logging.getLogger().handlers[-1].setLevel(logging.WARNING)   # bớt in tin nhắn từng phiên ra màn hình
+        for d in days:                                               # tăng dần: cờ "mới" dựa vào phiên trước
+            r = run(groups=a.groups.split(",") if a.groups else None,
+                    symbols=[s.strip().upper() for s in a.symbols.split(",")] if a.symbols else None, log=log, at=d)
+            print(f"{d}: {r['n']} mã · {len(r['signals'])} tín hiệu · lỗi {len(r['errors'])}", flush=True)
+        return
     run(groups=a.groups.split(",") if a.groups else None,
         symbols=[s.strip().upper() for s in a.symbols.split(",")] if a.symbols else None,
         dry_run=a.dry_run, photos=not a.no_photo, refresh=not a.offline, log=log)
