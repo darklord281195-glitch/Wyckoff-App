@@ -137,6 +137,12 @@ Bán thực tế thì bấm **Bán** trên trang Danh mục (bán được từn
 - Máy tính khối lượng hiện tổng rủi ro mở trước và sau khi vào lệnh, báo nếu vượt ngưỡng.
 - Cảnh báo (vượt ngưỡng, đèn đỏ mà rủi ro mở > 3%, mã đã dưới cắt lỗ) được gửi kèm tin Telegram cuối ngày.
 
+**Nhật ký & kỷ luật** (thẻ cuối trang Danh mục): so kết quả thật với kết quả nếu làm đúng luật.
+- **R thật** = lãi/lỗ sau phí ÷ rủi ro lúc mua (giá mua − cắt lỗ đầu, lưu ở cột `stop0`, không đổi khi bạn sửa cắt lỗ). Lệnh đang mở tính phần chưa bán theo giá hiện tại.
+- **R theo luật** = cùng điểm mua, bán đúng luật của Danh mục. **Chênh** âm nghĩa là bạn làm kém luật.
+- **Cờ lúc mua**: mua ngoài vùng vào (lệch > 1%), mua khi đèn đỏ, kế hoạch lời/lỗ < 2. **Cờ lúc bán**: cắt lỗ trễ (còn giữ quá 2 phiên sau tín hiệu cắt lỗ), giữ quá hạn 20 phiên, bán sớm trước mọi tín hiệu bán và dưới T1.
+- Tổng hợp: R TB của bạn, R TB nếu đúng luật, R TB backtest, tổng R mất ở các lệnh có vi phạm.
+
 **Sao lưu:** sau mỗi lần quét, danh mục, lịch sử bán, watchlist được ghi ra `backups\portfolio-YYYYMMDD.json` (giữ 30 bản). Khôi phục: `.venv\Scripts\python -m app.backup restore ..\backups\portfolio-YYYYMMDD.json`. Giá OHLCV không sao lưu, mất thì tải lại bằng `app.backtest --backfill`.
 
 ## Backtest

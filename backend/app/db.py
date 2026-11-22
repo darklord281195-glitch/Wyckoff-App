@@ -38,6 +38,7 @@ CREATE TABLE IF NOT EXISTS watchlist (
 CREATE TABLE IF NOT EXISTS positions (            -- lệnh đã mua; cắt lỗ + mục tiêu chốt cố định lúc mua
   id INTEGER PRIMARY KEY, sym TEXT NOT NULL, kind TEXT, entry_d TEXT NOT NULL, entry_px REAL NOT NULL,
   qty INTEGER, stop REAL NOT NULL, targets TEXT,  -- targets: JSON [giá T1, T2, ...] (nghìn đồng)
+  stop0 REAL,                                      -- cắt lỗ lúc mua (stop có thể bị sửa sau); nhật ký tính R theo stop0
   status TEXT NOT NULL DEFAULT 'open', exit_d TEXT, exit_px REAL, note TEXT
 );
 CREATE TABLE IF NOT EXISTS sales (                -- từng lần bán thực tế của một lệnh (bán từng phần được)
@@ -50,4 +51,14 @@ def connect(path=None) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path or DB_PATH), check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
+    _migrate(conn)
     return conn
+
+
+def _migrate(conn):
+    """Nâng cấp DB tạo từ bản cũ: thêm cột mới, điền giá trị mặc định."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(positions)")}
+    if "stop0" not in cols:
+        conn.execute("ALTER TABLE positions ADD COLUMN stop0 REAL")
+        conn.execute("UPDATE positions SET stop0 = stop WHERE stop0 IS NULL")
+        conn.commit()

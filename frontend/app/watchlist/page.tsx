@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Fragment, useEffect, useState } from "react";
 import { api, Position, Row, Sale, day, fullDate, num, pct, price } from "@/lib/api";
 import RiskCard from "@/components/RiskCard";
+import JournalCard from "@/components/JournalCard";
 
 type Item = { sym: string; note: string | null; added: string };
 const JSON_HDR = { "Content-Type": "application/json" };
@@ -166,6 +167,8 @@ export default function Watchlist() {
           <b className={realized >= 0 ? "up" : "down"}>{num(realized)} đ</b>
           <span className="muted"> · sau phí mua 0,15%, bán 0,15% + thuế 0,1%</span></p>}
       </section>
+
+      <JournalCard reload={tick} />
 
       <section className="card">
         <h2>Thêm mã theo dõi</h2>

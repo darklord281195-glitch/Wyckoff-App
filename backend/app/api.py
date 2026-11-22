@@ -11,6 +11,7 @@ from .core.market import traffic_light
 from .core.positions import simulate
 from .core.foreign import get_foreign
 from .core import risk as risk_mod
+from .core import journal as journal_mod
 from .universe import GROUP_NAMES, INDEX, group_of, watchlist, listing, sectors
 from . import scan as scan_mod
 from .core.signals import PRIORITY
@@ -200,6 +201,36 @@ def _portfolio_risk():
                                    {s: (v.get("icb_name") or "") for s, v in lst.items()}, market()["light"])
 
 
+def _light_at(d: str) -> str | None:
+    """Đèn thị trường của phiên d: lấy từ kết quả quét nếu có, không thì tính theo xu hướng VNINDEX tới phiên đó."""
+    row = conn.execute("SELECT data FROM scan_results WHERE sym=? AND date=?", (INDEX, d)).fetchone()
+    res = json.loads(row[0]) if row else None
+    if res is None:
+        try:
+            _, res = _analysis(INDEX, d)
+        except HTTPException:
+            return None
+    return traffic_light(res, res and res.get("breadth"))["light"]
+
+
+@app.get("/api/journal")
+def journal():
+    """Nhật ký: R thật vs R theo luật cho từng lệnh, cờ vi phạm lúc mua/bán, tổng hợp so với backtest."""
+    def bars_of(sym, d):
+        return [r for r in get_ohlcv(conn, sym, 10000, refresh=False) if r["d"] >= d]
+
+    def plan_at(sym, d):
+        try:
+            _, a = _analysis(sym, d)
+        except HTTPException:
+            return {}, _light_at(d)
+        return ((a or {}).get("plan") or {}), _light_at(d)
+
+    bt = conn.execute("SELECT avg_r FROM backtest_stats WHERE plan='Tất cả'").fetchone()
+    return journal_mod.build(journal_mod.all_positions(conn), journal_mod.sales_by_position(conn), bars_of, plan_at,
+                             bt[0] if bt else None)
+
+
 @app.get("/api/portfolio/risk")
 def portfolio_risk():
     """Tổng rủi ro mở (% vốn), số lệnh, tỷ trọng ngành, cảnh báo vượt ngưỡng; factor = hệ số % rủi ro theo đèn."""
@@ -217,8 +248,8 @@ def pos_add(item: PositionIn):
     if not stop or stop >= entry_px:
         raise HTTPException(400, f"Cắt lỗ {stop or '–'} không thấp hơn giá vào {entry_px}: lệnh mua ngoài kế hoạch "
                                  "(kế hoạch mua ở vùng khác) - hãy nhập mốc cắt lỗ của bạn.")
-    conn.execute("INSERT INTO positions(sym,kind,entry_d,entry_px,qty,stop,targets,note) VALUES (?,?,?,?,?,?,?,?)",
-                 (code, plan.get("kind"), R[-1]["d"], entry_px, item.qty, stop, json.dumps(targets), item.note))
+    conn.execute("INSERT INTO positions(sym,kind,entry_d,entry_px,qty,stop,stop0,targets,note) VALUES (?,?,?,?,?,?,?,?,?)",
+                 (code, plan.get("kind"), R[-1]["d"], entry_px, item.qty, stop, stop, json.dumps(targets), item.note))
     conn.execute("INSERT OR IGNORE INTO watchlist(sym, note) VALUES (?, ?)", (code, "đang giữ"))   # để luôn được quét
     conn.commit()
     return pos_list()
