@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createChart, ColorType, LineStyle, Time } from "lightweight-charts";
 import { api, fullDate, num, type PortfolioRun } from "@/lib/api";
+import ForwardCard from "@/components/ForwardCard";
 
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 // màu theo vai trò: app = nhấn, VNINDEX = trung tính, đèn = cam; chữ luôn dùng màu chữ, chấm màu chỉ để nhận diện
@@ -36,12 +37,14 @@ export default function Results() {
   }, [run]);
 
   if (run === undefined) return <div className="card">Đang tải…</div>;
-  if (run === null) return <div className="card">Chưa có kết quả. Chạy <code>.venv\Scripts\python -m app.backtest --portfolio</code> trong thư mục backend.</div>;
+  if (run === null) return <><ForwardCard /><div className="card">Chưa có kết quả backtest danh mục. Chạy <code>.venv\Scripts\python -m app.backtest --portfolio</code> trong thư mục backend.</div></>;
   const p = run.params, periods = Object.keys(run.metrics), full = run.metrics["Toàn kỳ"];
   const years = Object.keys(full.app.yearly);
 
   return (
     <>
+      <ForwardCard />
+
       <section className="card">
         <h2>Backtest danh mục · vốn 100 triệu</h2>
         <p className="muted" style={{ marginTop: 0 }}>

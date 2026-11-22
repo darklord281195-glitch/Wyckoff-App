@@ -77,6 +77,13 @@ export type PortfolioRun = { created: string;
   params: { risk_pct: number; max_pos: number; max_heat: number; start: string; end: string; trades_total: number; trades_taken: number };
   metrics: Record<string, { app: PfMetric; vni: PfMetric; light: PfMetric }>;
   curves: { d: string; app: number; vni: number; light: number }[] };
+/** Chấm điểm tín hiệu đã báo (/api/forward). */
+export type ForwardItem = { date: string; sym: string; kind: string; replay: boolean; plan: string | null;
+  entry_lo: number | null; entry_hi: number | null; stop: number | null; status: string; entry_d: string | null;
+  entry: number | null; exit_d: string | null; why: string | null; R: number | null };
+export type Forward = { items: ForwardItem[]; summary: { n: number; filled: number; pending: number; fill_rate: number | null;
+  closed: number; avg_r: number | null; win: number | null; sum_r: number | null; backtest_avg_r: number | null;
+  first: string | null; last: string | null } };
 export type SymbolData = {
   sym: string; groups: string[]; name: string | null; floor: string | null; sector: string | null; unit: "pt" | "k"; ohlcv: Ohlcv[]; analysis: Analysis | null;
   signals: Signal[]; in_watchlist: boolean;

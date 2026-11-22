@@ -107,8 +107,8 @@ def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log
                 had_yday = had and conn.execute("SELECT 1 FROM signals WHERE sym=? AND kind=? AND date=?",
                                                 (s, x["kind"], last_d)).fetchone()
                 x["is_new"] = 0 if had_yday else 1
-                conn.execute("INSERT OR REPLACE INTO signals(date,sym,kind,is_new,text) VALUES (?,?,?,?,?)",
-                             (scan_date, s, x["kind"], x["is_new"], x["text"]))
+                conn.execute("INSERT OR REPLACE INTO signals(date,sym,kind,is_new,text,replay) VALUES (?,?,?,?,?,?)",
+                             (scan_date, s, x["kind"], x["is_new"], x["text"], 1 if at else 0))
                 all_sigs.append(x)
             log.debug("[%d/%d] %s %s", i, len(syms), s, r["tag"])
         except Exception as e:

@@ -12,6 +12,7 @@ from .core.positions import simulate
 from .core.foreign import get_foreign
 from .core import risk as risk_mod
 from .core import journal as journal_mod
+from .core import forward as forward_mod
 from .universe import GROUP_NAMES, INDEX, group_of, watchlist, listing, sectors
 from . import scan as scan_mod
 from .core.signals import PRIORITY
@@ -37,6 +38,12 @@ def _session(date: str | None = None):
 @app.get("/api/scan/dates")
 def scan_dates():
     return [r[0] for r in conn.execute("SELECT DISTINCT date FROM scan_results ORDER BY date DESC")]
+
+
+@app.get("/api/forward")
+def forward(live: int = 1):
+    """Chấm điểm tín hiệu mua đã báo theo luật backtest; live=1 chỉ tín hiệu báo thật (bỏ phiên tạo lại)."""
+    return forward_mod.score(conn, live_only=bool(live))
 
 
 @app.get("/api/backtest/portfolio")

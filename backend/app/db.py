@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS scan_results (
 );
 CREATE TABLE IF NOT EXISTS signals (
   date TEXT NOT NULL, sym TEXT NOT NULL, kind TEXT NOT NULL, is_new INTEGER, text TEXT,
+  replay INTEGER DEFAULT 0,                        -- 1 = tạo lại bằng scan --from, 0 = báo thật lúc quét thường
   PRIMARY KEY (date, sym, kind)
 );
 CREATE TABLE IF NOT EXISTS telegram_sent (        -- phiên đã gửi Telegram: ngày lễ quét lại phiên cũ thì không gửi trùng
@@ -68,4 +69,9 @@ def _migrate(conn):
     if "stop0" not in cols:
         conn.execute("ALTER TABLE positions ADD COLUMN stop0 REAL")
         conn.execute("UPDATE positions SET stop0 = stop WHERE stop0 IS NULL")
+        conn.commit()
+    if "replay" not in {r[1] for r in conn.execute("PRAGMA table_info(signals)")}:
+        # tín hiệu có trước cột này không biết là báo thật hay tạo lại: coi là tạo lại để không làm đẹp kết quả
+        conn.execute("ALTER TABLE signals ADD COLUMN replay INTEGER DEFAULT 0")
+        conn.execute("UPDATE signals SET replay = 1")
         conn.commit()

@@ -173,6 +173,8 @@ Giới hạn:
 - Giá đã điều chỉnh.
 - Trượt giá là một mức cố định, chưa theo thanh khoản từng mã.
 
+**Chấm điểm tín hiệu thật** (trang **Kết quả**, mục "Tín hiệu đã báo"): mỗi tín hiệu mua đã báo (lần đầu, không bị ẩn theo đèn) được chấm theo đúng luật backtest: có khớp vùng vào trong 10 phiên không (chờ khớp / không khớp / đang giữ / đã đóng), rồi bán theo luật được bao nhiêu R sau phí + trượt giá. So với R TB backtest để biết hệ thống còn hoạt động như kỳ vọng không. Tín hiệu tạo lại bằng `scan --from` được đánh dấu (`signals.replay = 1`) và mặc định không tính; các tín hiệu có trước khi thêm cột này đều coi là tạo lại.
+
 **Backtest cấp danh mục** (`--portfolio`, xem trên trang **Kết quả**): mô phỏng một tài khoản 100 triệu theo đúng luật app (ẩn tín hiệu theo đèn, rủi ro 1%/lệnh × hệ số đèn, tối đa 6 lệnh, tổng rủi ro ≤ 6%, ưu tiên điểm sẵn sàng cao), định giá theo giá đóng cửa mỗi phiên. So với **mua-giữ VNINDEX** và **chỉ theo đèn** (giữ VNINDEX khi đèn không đỏ, tiền mặt khi đỏ). Chỉ số: tổng, lợi nhuận năm, sụt giảm lớn nhất, Sharpe, % thời gian có vị thế, theo 2019–23 / 2024–26 / toàn kỳ và từng năm.
 
 Kết quả 22/11/2026: toàn kỳ app +4,1%/năm (sụt tối đa −24%) so với VNINDEX +8,1%/năm (sụt −40%); 2019–23 app thắng (10,0% so với 3,8%/năm), 2024–26 app thua xa (−4,6% so với +15,1%/năm). App chỉ có vị thế ~30% thời gian.
