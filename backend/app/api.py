@@ -10,6 +10,7 @@ from .core.wyckoff import analyse, trim, ANALYSIS_DAYS
 from .core.market import traffic_light
 from .core.positions import simulate
 from .core.foreign import get_foreign
+from .core import risk as risk_mod
 from .universe import GROUP_NAMES, INDEX, group_of, watchlist, listing, sectors
 from . import scan as scan_mod
 from .core.signals import PRIORITY
@@ -172,19 +173,37 @@ class SellIn(BaseModel):
 @app.get("/api/positions")
 def pos_list():
     """Lệnh đang giữ, kèm trạng thái theo luật bán (cắt lỗ hiện tại, mục tiêu kế tiếp, việc cần làm)."""
-    out = []
-    for row in conn.execute("SELECT * FROM positions WHERE status='open' ORDER BY entry_d DESC, id DESC").fetchall():
-        p = dict(row, targets=json.loads(row["targets"] or "[]"))
-        p["sold"] = conn.execute("SELECT COALESCE(sum(qty),0) FROM sales WHERE pos_id=?", (p["id"],)).fetchone()[0]
-        bars = [r for r in get_ohlcv(conn, p["sym"], 4000, refresh=False) if r["d"] >= p["entry_d"]]
-        if bars:
-            s = simulate(p["entry_px"], p["stop"], p["targets"], bars)
-            p.update(c=bars[-1]["c"], d=bars[-1]["d"], days=len(bars) - 1,
-                     pnl=round((bars[-1]["c"] / p["entry_px"] - 1) * 100, 1),
-                     cur_stop=s["stop"], left=s["left"], hit=s["hit"], next=s["next"], pending=s["pending"],
-                     sold_out=None if s["open"] else s["exits"][-1]["d"], events=s["events"][-3:])
-        out.append(p)
-    return out
+    return risk_mod.open_positions(conn)
+
+
+class SettingsIn(BaseModel):
+    capital: float | None = Field(None, gt=0)
+    risk_pct: float | None = Field(None, gt=0, le=10)
+    max_heat: float | None = Field(None, gt=0, le=100)
+    max_pos: int | None = Field(None, gt=0)
+    max_sector: float | None = Field(None, gt=0, le=100)
+
+
+@app.get("/api/settings")
+def settings_get():
+    return risk_mod.get_settings(conn)
+
+
+@app.put("/api/settings")
+def settings_put(item: SettingsIn):
+    return risk_mod.put_settings(conn, item.model_dump(exclude_none=True))
+
+
+def _portfolio_risk():
+    lst = listing(conn)
+    return risk_mod.portfolio_risk(risk_mod.open_positions(conn), risk_mod.get_settings(conn),
+                                   {s: (v.get("icb_name") or "") for s, v in lst.items()}, market()["light"])
+
+
+@app.get("/api/portfolio/risk")
+def portfolio_risk():
+    """Tổng rủi ro mở (% vốn), số lệnh, tỷ trọng ngành, cảnh báo vượt ngưỡng; factor = hệ số % rủi ro theo đèn."""
+    return _portfolio_risk()
 
 
 @app.post("/api/positions")

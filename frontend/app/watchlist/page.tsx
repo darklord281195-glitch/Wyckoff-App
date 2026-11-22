@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { Fragment, useEffect, useState } from "react";
 import { api, Position, Row, Sale, day, fullDate, num, pct, price } from "@/lib/api";
+import RiskCard from "@/components/RiskCard";
 
 type Item = { sym: string; note: string | null; added: string };
 const JSON_HDR = { "Content-Type": "application/json" };
@@ -14,6 +15,7 @@ export default function Watchlist() {
   const [sales, setSales] = useState<Sale[]>([]);
   const [sell, setSell] = useState<{ id: number; qty: string; px: string; d: string } | null>(null);  // form bán đang mở
   const [sellErr, setSellErr] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);        // tăng mỗi lần tải lại để RiskCard tính lại
 
   const load = async () => {
     setItems(await api<Item[]>("/api/watchlist"));
@@ -21,6 +23,7 @@ export default function Watchlist() {
     setSales(await api<Sale[]>("/api/sales"));
     const s = await api<{ rows: Row[] }>("/api/scan/latest");
     setRows(Object.fromEntries(s.rows.map((r) => [r.sym, r])));
+    setTick((t) => t + 1);
   };
   useEffect(() => { load(); }, []);
 
@@ -62,6 +65,8 @@ export default function Watchlist() {
 
   return (
     <>
+      <RiskCard reload={tick} />
+
       <section className="card">
         <h2>Danh mục đang giữ</h2>
         {pos.length === 0 ? (

@@ -29,6 +29,9 @@ CREATE TABLE IF NOT EXISTS backtest_stats (       -- kết quả backtest theo l
   plan TEXT PRIMARY KEY, n INTEGER, hit_t1 REAL, stop REAL, timeout REAL, avg_r REAL, ci_lo REAL, ci_hi REAL,
   avg_days REAL, period TEXT, slip REAL, updated TEXT
 );
+CREATE TABLE IF NOT EXISTS settings (             -- cài đặt người dùng (JSON theo key), vd vốn và ngưỡng rủi ro
+  key TEXT PRIMARY KEY, value TEXT
+);
 CREATE TABLE IF NOT EXISTS watchlist (
   sym TEXT PRIMARY KEY, note TEXT, added TEXT DEFAULT (date('now'))
 );

@@ -52,6 +52,15 @@ export type Foreign = { d: string; buy: number; sell: number; net: number; net_v
 /** Kết quả backtest của một loại kế hoạch (app.backtest); hit_t1/stop/timeout là %. */
 export type PlanStats = { plan: string; n: number; hit_t1: number; stop: number; timeout: number; avg_r: number;
   ci_lo: number; ci_hi: number; avg_days: number; period: string; slip: number; updated: string };
+/** Cài đặt vốn và ngưỡng rủi ro (backend /api/settings). capital: triệu đồng; còn lại là %. */
+export type Settings = { capital: number; risk_pct: number; max_heat: number; max_pos: number; max_sector: number };
+/** Rủi ro danh mục (/api/portfolio/risk); tiền tính bằng đồng, heat = % vốn. */
+export type PortfolioRisk = {
+  capital: number; heat: number; max_heat: number; total_risk: number; total_value: number; n: number; max_pos: number;
+  items: { id: number; sym: string; held: number; risk: number; risk_pct: number; value: number; sector: string; below_stop: boolean }[];
+  sectors: { name: string; value: number; pct: number }[]; no_qty: string[];
+  light: string | null; factor: number; warnings: string[];
+};
 export type SymbolData = {
   sym: string; groups: string[]; name: string | null; floor: string | null; sector: string | null; unit: "pt" | "k"; ohlcv: Ohlcv[]; analysis: Analysis | null;
   signals: Signal[]; in_watchlist: boolean;

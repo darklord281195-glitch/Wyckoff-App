@@ -17,6 +17,7 @@ from .core.market import traffic_light
 from .core import signals as sig
 from .universe import universe, watchlist, refresh_listing, listing, INDEX
 from . import notify, charts, backup
+from .core import risk as risk_mod
 
 LIGHT_ICON = {"green": "🟢", "yellow": "🟡", "red": "🔴", "?": "⚪"}
 
@@ -131,6 +132,14 @@ def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log
              len(results), skipped, scan_date)
 
     msg = format_message(scan_date, market, all_sigs, results, errors, hidden, kinds)
+    if not at:                    # cảnh báo rủi ro danh mục (vốn, ngưỡng ở trang Danh mục)
+        try:
+            pr = risk_mod.portfolio_risk(risk_mod.open_positions(conn), risk_mod.get_settings(conn),
+                                         {s: (v.get("icb_name") or "") for s, v in lst.items()}, market["light"])
+            if pr["warnings"]:
+                msg += "\n\n⚖️ Rủi ro danh mục:\n" + "\n".join("  " + w for w in pr["warnings"])
+        except Exception as e:
+            log.warning("Không tính được rủi ro danh mục: %s", e)
     log.info("\n%s", msg)
     if dry_run or not notify.enabled():
         if not dry_run: log.warning("Chưa cấu hình TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID trong .env - không gửi.")

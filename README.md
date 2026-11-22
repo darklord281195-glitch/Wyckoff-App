@@ -130,6 +130,13 @@ Mỗi lần quét, app tính lại từ ngày mua theo luật bán (`core/positi
 
 Bán thực tế thì bấm **Bán** trên trang Danh mục (bán được từng phần); bán hết thì lệnh tự đóng. Mục **Lịch sử bán** ghi từng lần bán với lãi/lỗ sau phí. Cắt lỗ sửa được ngay trong bảng.
 
+**Rủi ro danh mục** (thẻ đầu trang Danh mục):
+- **Tổng rủi ro mở** = tổng số cp còn giữ × (giá hiện tại − cắt lỗ hiện tại): số tiền mất thêm nếu mọi lệnh cùng về cắt lỗ, tính theo % vốn. Lệnh chưa nhập số lượng thì không tính được.
+- Ngưỡng mặc định: tổng rủi ro mở ≤ 6% vốn, ≤ 6 lệnh, một ngành ≤ 40% giá trị đang giữ. Vốn, % rủi ro/lệnh và các ngưỡng sửa ngay trên thẻ, lưu ở backend (bảng `settings`), dùng chung với máy tính khối lượng trên trang mã.
+- **Theo đèn**: đèn vàng giảm % rủi ro/lệnh gợi ý còn ½, đèn đỏ về 0 (không mở lệnh mới) vì backtest cho thấy lệnh mở khi đèn đỏ có kỳ vọng âm.
+- Máy tính khối lượng hiện tổng rủi ro mở trước và sau khi vào lệnh, báo nếu vượt ngưỡng.
+- Cảnh báo (vượt ngưỡng, đèn đỏ mà rủi ro mở > 3%, mã đã dưới cắt lỗ) được gửi kèm tin Telegram cuối ngày.
+
 **Sao lưu:** sau mỗi lần quét, danh mục, lịch sử bán, watchlist được ghi ra `backups\portfolio-YYYYMMDD.json` (giữ 30 bản). Khôi phục: `.venv\Scripts\python -m app.backup restore ..\backups\portfolio-YYYYMMDD.json`. Giá OHLCV không sao lưu, mất thì tải lại bằng `app.backtest --backfill`.
 
 ## Backtest

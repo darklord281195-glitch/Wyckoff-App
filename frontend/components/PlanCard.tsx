@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { Fragment, useEffect, useState } from "react";
-import { Plan, api, num, pct, price } from "@/lib/api";
+import { Plan, api, num, pct, price, type PortfolioRisk, type Settings } from "@/lib/api";
 
 const LS_KEY = "wyckoff-sizing";
 
@@ -15,19 +15,41 @@ export default function PlanCard({ sym, plan, c, unit, readOnly }: { sym: string
   const [buyQty, setBuyQty] = useState("");                      // trống = dùng số cp gợi ý
   const [buyStop, setBuyStop] = useState("");                    // đồng; trống = cắt lỗ theo kế hoạch
   const [msg, setMsg] = useState<string | null>(null);
+  const [risk, setRisk] = useState<PortfolioRisk | null>(null);   // rủi ro danh mục hiện tại + hệ số theo đèn
+  const [loaded, setLoaded] = useState(false);
+  // vốn / % rủi ro dùng chung với trang Danh mục (backend /api/settings);
+  // lần đầu: nếu backend còn mặc định mà trình duyệt có giá trị cũ (localStorage) thì chuyển lên backend
   useEffect(() => {
-    try {
-      const s = JSON.parse(localStorage.getItem(LS_KEY) ?? "{}");
-      if (s.capital) setCapital(s.capital); if (s.riskPct) setRiskPct(s.riskPct);
-    } catch { /* trình duyệt chặn localStorage */ }
+    (async () => {
+      try {
+        let s = await api<Settings>("/api/settings");
+        let old: { capital?: number; riskPct?: number } = {};
+        try { old = JSON.parse(localStorage.getItem(LS_KEY) ?? "{}"); } catch { /* không có storage */ }
+        if (s.capital === 100 && s.risk_pct === 1 && (old.capital || old.riskPct)) {
+          s = await api<Settings>("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ capital: old.capital ?? s.capital, risk_pct: old.riskPct ?? s.risk_pct }) });
+        }
+        try { localStorage.removeItem(LS_KEY); } catch { /* bỏ qua */ }
+        setCapital(s.capital); setRiskPct(s.risk_pct);
+        setRisk(await api<PortfolioRisk>("/api/portfolio/risk"));
+      } catch { /* backend cũ chưa có API: giữ mặc định */ }
+      setLoaded(true);
+    })();
   }, []);
+  // ghi lại khi người dùng sửa (chờ 0,6 giây sau lần gõ cuối)
   useEffect(() => {
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ capital, riskPct })); } catch { /* bỏ qua */ }
-  }, [capital, riskPct]);
+    if (!loaded || !(capital > 0) || !(riskPct > 0)) return;
+    const t = setTimeout(() => api("/api/settings", { method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ capital, risk_pct: riskPct }) }).catch(() => {}), 600);
+    return () => clearTimeout(t);
+  }, [capital, riskPct, loaded]);
 
   const entry = plan.entry_lo && plan.entry_hi ? (plan.entry_lo + plan.entry_hi) / 2 : null;
   const perShare = entry && plan.stop ? (entry - plan.stop) * 1000 : null;               // đồng/cp
-  const maxLoss = capital * 1e6 * riskPct / 100;
+  const factor = risk?.factor ?? 1;                     // đèn xanh 1 · vàng 0,5 · đỏ 0
+  const effPct = riskPct * factor;
+  const maxLoss = capital * 1e6 * effPct / 100;
+  const heatAfter = risk ? risk.heat + effPct : null;   // tổng rủi ro mở (% vốn) nếu vào thêm lệnh này
   const shares = perShare && perShare > 0 ? Math.floor(maxLoss / perShare / 100) * 100 : 0;  // lô 100
   const value = entry ? shares * entry * 1000 : 0;
   const qty = +buyQty > 0 ? Math.floor(+buyQty) : shares;   // số cp thực mua; không nhập thì lấy gợi ý
@@ -84,9 +106,16 @@ export default function PlanCard({ sym, plan, c, unit, readOnly }: { sym: string
             </div>
             {unit === "k" && entry && perShare ? (
               <dl className="kv" style={{ marginTop: 8 }}>
+                {factor < 1 && <><dt>Theo đèn</dt><dd className="down" style={{ fontFamily: "inherit" }}>
+                  {factor === 0 ? "Đèn đỏ: không mở lệnh mới (backtest kỳ vọng âm)"
+                    : `Đèn vàng: rủi ro giảm còn ${num(effPct, 2)}%/lệnh`}</dd></>}
                 <dt>Lỗ tối đa</dt><dd>{num(maxLoss / 1e6, 2)} triệu</dd>
                 <dt>Số cp gợi ý</dt><dd>{num(shares)} cp</dd>
                 <dt>Giá trị lệnh</dt><dd>{num(value / 1e6, 1)} triệu ({num(value / (capital * 1e6) * 100)}% vốn)</dd>
+                {risk && heatAfter != null && factor > 0 && <><dt>Rủi ro danh mục</dt>
+                  <dd className={heatAfter > risk.max_heat ? "down" : ""}>
+                    {num(risk.heat, 1)}% → {num(heatAfter, 1)}% vốn (ngưỡng {num(risk.max_heat, 1)}%)
+                    {heatAfter > risk.max_heat ? " · vượt ngưỡng, nên không vào" : ""}</dd></>}
               </dl>
             ) : <p className="muted">Chưa có điểm vào để tính.</p>}
             {!readOnly && <div className="row" style={{ marginTop: 8 }}>
