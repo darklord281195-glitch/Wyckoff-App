@@ -198,7 +198,7 @@ def sector_medians(acc, min_n=3):
 
 
 def collect(conn, syms, start, end, slip=SLIP, time_stops=(TIME_STOP,), log=print):
-    """{time_stop: [lệnh]}: chạy backtest mọi mã; mỗi lệnh gắn đèn, khối ngoại 10 phiên và RS20 ngành lúc báo.
+    """({time_stop: [lệnh]}, Counter lệnh đặt, {ngày: đèn}): chạy backtest mọi mã; mỗi lệnh gắn đèn, khối ngoại 10 phiên và RS20 ngành lúc báo.
     Nhiều time_stop thì chạy lại run_symbol cho từng giá trị (điểm vào giống nhau, chỉ khác luật thoát)."""
     t0 = time.time()
     IDX = get_ohlcv(conn, INDEX, HISTORY + 400, refresh=False)
@@ -220,7 +220,7 @@ def collect(conn, syms, start, end, slip=SLIP, time_stops=(TIME_STOP,), log=prin
             t["light"] = light.get(t["sig_d"], "?")
             t["fx10"] = net_sum(conn, t["sym"], t["sig_d"])
             t["sector_rs20"] = med.get(((lst.get(t["sym"]) or {}).get("icb"), t["sig_d"]))
-    return out, orders
+    return out, orders, light
 
 
 PERIODS = (("2019–23", lambda t: t["sig_d"] < "2024"), ("2024–26", lambda t: t["sig_d"] >= "2024"), ("Tất cả", lambda t: True))
@@ -247,7 +247,7 @@ def compare(trades, name, keep, has=lambda t: True):
 def run_compare(conn, syms, a, slip):
     """Kiểm chứng các bộ lọc mới so với toàn bộ lệnh và luật ẩn hiện tại; ghi logs/compare-YYYYMMDD.csv."""
     tss = sorted({int(x) for x in a.time_stop.split(",")} | {TIME_STOP})
-    out, _ = collect(conn, syms, a.start, a.end, slip, tuple([TIME_STOP] + [x for x in tss if x != TIME_STOP]))
+    out, _, _ = collect(conn, syms, a.start, a.end, slip, tuple([TIME_STOP] + [x for x in tss if x != TIME_STOP]))
     trades = out[TIME_STOP]
     if not trades:
         print("Không có lệnh nào (đã chạy --backfill chưa?)"); return
@@ -286,6 +286,8 @@ def main():
                     help="tải ~8 năm khối ngoại cho các mã từng có GT ≥ MIN_LIQ_BIL rồi thoát (cho --compare)")
     ap.add_argument("--compare", action="store_true", help="kiểm chứng các bộ lọc mới (đèn xanh, khối ngoại, ngành, cắt lỗ thời gian)")
     ap.add_argument("--time-stop", default="15,20,30", help="cùng --compare: các số phiên cắt lỗ thời gian để so")
+    ap.add_argument("--portfolio", action="store_true",
+                    help="backtest cấp danh mục (vốn giới hạn, nhiều lệnh) so với mua-giữ VNINDEX và chỉ theo đèn")
     ap.add_argument("--symbols", help="danh sách mã, mặc định toàn bộ HOSE+HNX + nhóm theo dõi + watchlist")
     ap.add_argument("--from", dest="start", default="2019-06-01")
     ap.add_argument("--to", dest="end", default="9999-12-31")
@@ -307,7 +309,16 @@ def main():
         return
     if a.compare:
         run_compare(conn, syms, a, slip); return
-    out, orders = collect(conn, syms, a.start, a.end, slip)
+    if a.portfolio:
+        from . import portfolio_bt
+        out, _, light = collect(conn, syms, a.start, a.end, slip)
+        if not out[TIME_STOP]:
+            print("Không có lệnh nào (đã chạy --backfill chưa?)"); return
+        res = portfolio_bt.run(conn, out[TIME_STOP], get_ohlcv(conn, INDEX, HISTORY + 400, refresh=False), light)
+        portfolio_bt.print_report(res)
+        print("\nĐã lưu kết quả (trang Kết quả trên web).")
+        return
+    out, orders, _ = collect(conn, syms, a.start, a.end, slip)
     trades = out[TIME_STOP]
     if not trades:
         print("Không có lệnh nào (đã chạy --backfill chưa?)"); return

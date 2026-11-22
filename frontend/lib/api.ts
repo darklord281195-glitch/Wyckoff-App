@@ -70,6 +70,13 @@ export type Journal = { items: JournalItem[]; summary: { n: number; open: number
 /** Sức mạnh một ngành ICB tại phiên quét (/api/sectors). */
 export type SectorRow = { icb: string; name: string; n: number; rs20: number | null; rs60: number | null;
   pct_d: number; fx10: number | null };
+/** Một chiến lược trong backtest danh mục: % tổng, % năm, sụt giảm lớn nhất, Sharpe, % thời gian có vị thế. */
+export type PfMetric = { total: number; cagr: number; mdd: number; sharpe: number | null; exposure: number;
+  yearly: Record<string, number>; trades?: number };
+export type PortfolioRun = { created: string;
+  params: { risk_pct: number; max_pos: number; max_heat: number; start: string; end: string; trades_total: number; trades_taken: number };
+  metrics: Record<string, { app: PfMetric; vni: PfMetric; light: PfMetric }>;
+  curves: { d: string; app: number; vni: number; light: number }[] };
 export type SymbolData = {
   sym: string; groups: string[]; name: string | null; floor: string | null; sector: string | null; unit: "pt" | "k"; ohlcv: Ohlcv[]; analysis: Analysis | null;
   signals: Signal[]; in_watchlist: boolean;

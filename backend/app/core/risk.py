@@ -83,7 +83,7 @@ def portfolio_risk(positions: list[dict], settings: dict, sector_of: dict, light
     sectors = sorted(({"name": k, "value": round(v), "pct": round(v / total_value * 100, 1) if total_value else 0}
                       for k, v in by_sector.items()), key=lambda x: -x["value"])
     warn = []
-    if heat > settings["max_heat"]:
+    if round(heat, 6) > settings["max_heat"]:          # làm tròn: tránh sai số số thực đúng bằng ngưỡng
         warn.append(f"Tổng rủi ro mở {_n(heat)}% vốn, vượt ngưỡng {_n(settings['max_heat'])}%: không mở thêm lệnh, cân nhắc giảm.")
     if len(positions) > settings["max_pos"]:
         warn.append(f"Đang giữ {len(positions)} lệnh, vượt ngưỡng {settings['max_pos']} lệnh.")

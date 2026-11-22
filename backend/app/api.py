@@ -39,6 +39,16 @@ def scan_dates():
     return [r[0] for r in conn.execute("SELECT DISTINCT date FROM scan_results ORDER BY date DESC")]
 
 
+@app.get("/api/backtest/portfolio")
+def backtest_portfolio():
+    """Lần chạy backtest danh mục mới nhất (python -m app.backtest --portfolio); None nếu chưa chạy."""
+    r = conn.execute("SELECT created, params, metrics, curves FROM backtest_runs ORDER BY id DESC LIMIT 1").fetchone()
+    if not r:
+        return None
+    return dict(created=r["created"], params=json.loads(r["params"]), metrics=json.loads(r["metrics"]),
+                curves=json.loads(r["curves"]))
+
+
 @app.get("/api/sectors")
 def sectors_get(date: str | None = None):
     """Sức mạnh ngành tại phiên quét (mặc định mới nhất), xếp theo RS20 giảm dần."""

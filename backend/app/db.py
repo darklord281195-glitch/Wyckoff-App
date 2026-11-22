@@ -36,6 +36,9 @@ CREATE TABLE IF NOT EXISTS sector_stats (         -- sức mạnh ngành ICB m�
   date TEXT NOT NULL, icb TEXT NOT NULL, name TEXT, n INTEGER, rs20 REAL, rs60 REAL, pct_d REAL, fx10 REAL,
   PRIMARY KEY (date, icb)
 );
+CREATE TABLE IF NOT EXISTS backtest_runs (        -- backtest cấp danh mục (portfolio_bt.py): chỉ số + đường vốn theo tuần
+  id INTEGER PRIMARY KEY, created TEXT, params TEXT, metrics TEXT, curves TEXT
+);
 CREATE TABLE IF NOT EXISTS watchlist (
   sym TEXT PRIMARY KEY, note TEXT, added TEXT DEFAULT (date('now'))
 );
