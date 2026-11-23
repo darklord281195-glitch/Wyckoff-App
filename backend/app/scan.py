@@ -48,8 +48,13 @@ def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log
     IDX = _upto(get_ohlcv(conn, INDEX, 4000 if at else 600, refresh=refresh), at)
     if not IDX or (at and IDX[-1]["d"] != at):
         raise ValueError(f"Phiên {at} không có nến VNINDEX (không phải ngày giao dịch hoặc chưa có dữ liệu)")
-    idx_res = analyse(IDX)
     scan_date = IDX[-1]["d"]
+    today = dt.datetime.now(dt.timezone(dt.timedelta(hours=7))).date().isoformat()
+    if refresh and not dry_run and scan_date < today:
+        # nghỉ lễ / cuối tuần: VNINDEX không có nến hôm nay -> không quét, không gửi Telegram
+        log.info("Không có phiên %s (VNINDEX mới nhất %s, nghỉ lễ?): bỏ qua lần quét", today, scan_date)
+        return dict(date=scan_date, signals=[], n=0, errors=[], message="", skipped=True)
+    idx_res = analyse(IDX)
 
     wl = set(watchlist(conn))
     if refresh and not symbols and not groups:

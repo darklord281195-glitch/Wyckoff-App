@@ -48,3 +48,14 @@ def test_backup_restore_roundtrip(tmp_path):
     backup.restore(f, conn)
     assert conn.execute("SELECT qty FROM positions").fetchone()[0] == 100
     assert conn.execute("SELECT count(*) FROM sales").fetchone()[0] == 1
+
+
+def test_scan_skips_day_without_session(monkeypatch):
+    """Ngày nghỉ lễ: VNINDEX không có nến hôm nay -> quét thật bỏ qua, không gửi gì."""
+    from app import scan
+    import datetime as dt
+    hom_qua = (dt.datetime.now(dt.timezone(dt.timedelta(hours=7))) - dt.timedelta(days=1)).date().isoformat()
+    monkeypatch.setattr(scan, "get_ohlcv", lambda *a, **k: [dict(d=hom_qua, o=1, h=1, l=1, c=1, v=1)])
+    monkeypatch.setattr(scan, "connect", lambda: None)
+    r = scan.run(dry_run=False)
+    assert r["skipped"] and r["n"] == 0
