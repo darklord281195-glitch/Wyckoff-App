@@ -31,8 +31,33 @@ function group(data: Ohlcv[], key: (d: string) => string): Ohlcv[] {
   return out;
 }
 
+/** EMA theo chuỗi; trả về cùng độ dài, phần tử đầu = giá trị đầu */
+const ema = (xs: number[], n: number) => {
+  const a = 2 / (n + 1), out: number[] = [];
+  xs.forEach((x, i) => out.push(i ? out[i - 1] + a * (x - out[i - 1]) : x));
+  return out;
+};
+/** RSI(14) kiểu Wilder và MACD(12,26,9); null ở các nến chưa đủ dữ liệu */
+export function indicators(cl: number[]) {
+  const rsi: (number | null)[] = cl.map(() => null);
+  let g = 0, l = 0;
+  for (let i = 1; i < cl.length; i++) {
+    const d = cl[i] - cl[i - 1], up = Math.max(d, 0), dn = Math.max(-d, 0);
+    if (i <= 14) { g += up / 14; l += dn / 14; } else { g = (g * 13 + up) / 14; l = (l * 13 + dn) / 14; }
+    if (i >= 14) rsi[i] = l === 0 ? 100 : 100 - 100 / (1 + g / l);
+  }
+  const e12 = ema(cl, 12), e26 = ema(cl, 26);
+  const macd = cl.map((_, i) => e12[i] - e26[i]), sig = ema(macd, 9);
+  const ok = (i: number) => i >= 33;          // 26 + 9 − 2 nến để MACD/tín hiệu ổn định
+  return {
+    rsi, macd: macd.map((m, i) => (ok(i) ? m : null)),
+    signal: sig.map((s, i) => (ok(i) ? s : null)), hist: macd.map((m, i) => (ok(i) ? m - sig[i] : null)),
+  };
+}
+
 type Node = { n: number; price: number; label?: string };   // n = số phiên tính từ phiên phân tích
 const SC_KEY = "wyckoff.scenario";                          // localStorage: bật/tắt kịch bản
+const IND_KEY = "wyckoff.indicators";                       // localStorage: bật/tắt RSI/MACD
 
 /** Kịch bản minh họa theo kế hoạch: nhánh thành công (vào -> T1 -> T2...) và nhánh hỏng (vào -> cắt lỗ).
  *  Thời gian ước lượng: vào sau 1 phiên nếu đang trong vùng, không thì 5 phiên; T1 trong ¾ hạn time_stop; mỗi mục tiêu sau +15 phiên. */
@@ -72,6 +97,13 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
     setShowSc(!showSc);
     try { localStorage.setItem(SC_KEY, showSc ? "0" : "1"); } catch { /* không có storage */ }
   };
+  const box2 = useRef<HTMLDivElement>(null);
+  const [showInd, setShowInd] = useState(true);               // RSI + MACD bên dưới
+  useEffect(() => { try { if (localStorage.getItem(IND_KEY) === "0") setShowInd(false); } catch { /* không có storage */ } }, []);
+  const toggleInd = () => {
+    setShowInd(!showInd);
+    try { localStorage.setItem(IND_KEY, showInd ? "0" : "1"); } catch { /* không có storage */ }
+  };
   const sc = useMemo(() => (tf === "D" && unit === "k" && analysis ? scenario(analysis.plan, analysis.c) : null), [tf, unit, analysis]);
 
   useEffect(() => {
@@ -85,7 +117,7 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
       layout: { background: { type: ColorType.Solid, color: surface }, textColor: muted, fontFamily: css("--font") },
       grid: { vertLines: { color: grid }, horzLines: { color: grid } },
       crosshair: { mode: CrosshairMode.Normal },
-      rightPriceScale: { borderColor: grid, scaleMargins: { top: 0.08, bottom: 0.28 } },
+      rightPriceScale: { borderColor: grid, scaleMargins: { top: 0.08, bottom: 0.28 }, minimumWidth: 70 },   // = biểu đồ RSI/MACD để trục thời gian thẳng hàng
       timeScale: { borderColor: grid },
       localization: {
         locale: "vi-VN",
@@ -218,8 +250,41 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
       // mở sẵn đoạn cuối (ngày ≈1 năm, tuần ≈3 năm), kéo sang trái để xem cũ hơn; chừa chỗ cho kịch bản
       chart.timeScale().setVisibleLogicalRange({ from: rows.length - SHOW[tf], to: Math.max(rows.length + 2, scEnd + 3) });
     } else chart.timeScale().fitContent();
-    return () => { chart.remove(); chartRef.current = null; };
-  }, [rowsOf, tf, analysis, unit, sel?.from, sel?.to, sc, showSc]);
+
+    // RSI + MACD: biểu đồ phụ bên dưới, cùng trục thời gian (mỗi nến đều có điểm, null = khoảng trắng để chỉ số logic khớp)
+    let sub: IChartApi | null = null;
+    if (showInd && box2.current) {
+      sub = createChart(box2.current, {
+        autoSize: true,
+        layout: { background: { type: ColorType.Solid, color: surface }, textColor: muted, fontFamily: css("--font") },
+        grid: { vertLines: { color: grid }, horzLines: { color: grid } },
+        crosshair: { mode: CrosshairMode.Normal },
+        rightPriceScale: { borderColor: grid, minimumWidth: 70 },
+        timeScale: { borderColor: grid, visible: false },
+        handleScroll: false, handleScale: false,
+      });
+      const ind = indicators(rows.map((r) => r.c));
+      const pts = (xs: (number | null)[]) => rows.map((r, i) => (xs[i] == null ? { time: r.d as Time } : { time: r.d as Time, value: xs[i] as number }));
+      const base = { priceLineVisible: false, crosshairMarkerVisible: false, lineWidth: 1 as const };
+      const rsi = sub.addLineSeries({ ...base, priceScaleId: "rsi", color: "#8b5cf6", lineWidth: 2, title: "RSI 14",
+        priceFormat: { type: "price", precision: 0, minMove: 1 },
+        autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 100 } }) });
+      rsi.setData(pts(ind.rsi));
+      [[70, down], [30, up]].forEach(([p, c]) => rsi.createPriceLine({ price: p as number, color: c as string, lineStyle: LineStyle.Dashed, lineWidth: 1, axisLabelVisible: true, title: "" }));
+      sub.priceScale("rsi").applyOptions({ scaleMargins: { top: 0.04, bottom: 0.56 } });
+      const mfmt = { type: "price" as const, precision: unit === "pt" ? 1 : 2, minMove: 0.01 };
+      sub.addHistogramSeries({ ...base, priceScaleId: "macd", lastValueVisible: false, priceFormat: mfmt })
+        .setData(rows.map((r, i) => (ind.hist[i] == null ? { time: r.d as Time }
+          : { time: r.d as Time, value: ind.hist[i] as number, color: (ind.hist[i] as number) >= 0 ? up + "88" : down + "88" })));
+      sub.addLineSeries({ ...base, priceScaleId: "macd", color: "#2563eb", title: "MACD", priceFormat: mfmt }).setData(pts(ind.macd));
+      sub.addLineSeries({ ...base, priceScaleId: "macd", color: "#f59e0b", title: "Tín hiệu", priceFormat: mfmt }).setData(pts(ind.signal));
+      sub.priceScale("macd").applyOptions({ scaleMargins: { top: 0.5, bottom: 0.02 } });
+      const ts = sub.timeScale(), r0 = chart.timeScale().getVisibleLogicalRange();
+      if (r0) ts.setVisibleLogicalRange(r0);
+      chart.timeScale().subscribeVisibleLogicalRangeChange((r) => { if (r) ts.setVisibleLogicalRange(r); });
+    }
+    return () => { sub?.remove(); chart.remove(); chartRef.current = null; };
+  }, [rowsOf, tf, analysis, unit, sel?.from, sel?.to, sc, showSc, showInd]);
 
   // chế độ chọn khoảng: tắt kéo/zoom của biểu đồ để chuột dùng cho việc chọn
   useEffect(() => {
@@ -258,6 +323,9 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
         {sc && <button className={`btn${showSc ? " primary" : ""}`} onClick={toggleSc}
           title="Đường đứt nét: xanh = kịch bản thành công tới các mục tiêu, đỏ = kịch bản hỏng về cắt lỗ">
           {showSc ? "✓ Kịch bản" : "Kịch bản"}</button>}
+        <button className={`btn${showInd ? " primary" : ""}`} onClick={toggleInd}
+          title="RSI 14 (tím, vạch 70/30) và MACD 12-26-9 (xanh = MACD, cam = tín hiệu, cột = chênh lệch)">
+          {showInd ? "✓ RSI/MACD" : "RSI/MACD"}</button>
         {tf !== "D" && <span className="muted" style={{ fontSize: 12.5 }}>
           Mốc Wyckoff tính theo ngày, gắn vào {TF_LABEL[tf].toLowerCase()} chứa ngày đó · kéo/cuộn để xem thêm</span>}
       </div>
@@ -275,6 +343,7 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
           </div>
         )}
       </div>
+      {showInd && <div ref={box2} style={{ width: "100%", height: 220, marginTop: 4 }} />}
       {sc && showSc && <p className="muted" style={{ margin: "6px 0 0", fontSize: 12.5 }}>
         Đường đứt nét: <span className="up">xanh</span> = kịch bản thành công (vào → các mục tiêu Nhân–Quả),{" "}
         <span className="down">đỏ</span> = kịch bản hỏng (về cắt lỗ). Minh họa theo kế hoạch Wyckoff, thời gian ước lượng — không phải dự báo.
