@@ -73,7 +73,8 @@ export default function Home() {
     const v = q ? rows.filter((r) => r.sym.startsWith(q)) : rows.filter((r) =>   // đang tìm mã: bỏ qua các bộ lọc khác
       (group === "all" || r.groups.includes(group)) &&
       (stage === "all" || (stage === "early" ? isEarly(r) || r.tag === "D sớm"
-        : stage === "zone" ? !!r.in_zone : r.stage === stage)) && r.liq >= minLiq);
+        : stage === "zone" ? !!r.in_zone : stage === "spring" ? r.test === "Spring"
+        : stage === "test" ? !!r.test : r.stage === stage)) && r.liq >= minLiq);
     const val = (r: Row): number | string =>
       sort.k === "sym" ? r.sym : sort.k === "stage" ? STAGE_ORDER[r.stage] * 1000 - (r.rs20 ?? -99) : (r[sort.k] ?? -1e9);
     return v.sort((a, b) => {
@@ -165,6 +166,8 @@ export default function Home() {
               <option value="all">Mọi pha</option>
               <option value="early">🔭 Tiềm năng sớm</option>
               <option value="zone">🎯 Đang trong vùng vào</option>
+              <option value="spring">🌱 Spring (Pha C, 15 phiên)</option>
+              <option value="test">🌱 Spring + ST về đáy</option>
               {Object.entries(STAGE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
             <label className="muted">GT ≥ <input id="minliq" type="number" value={minLiq} onChange={(e) => setMinLiq(+e.target.value)} style={{ width: 70 }} /> tỷ</label>
@@ -184,7 +187,11 @@ export default function Home() {
                 <tr key={r.sym}>
                   <td title={r.name ?? ""}><Link href={`/symbol/${r.sym}${at}`}><b>{r.sym}</b></Link>{" "}
                     <span className="muted" style={{ fontSize: 11.5 }}>{r.floor ?? ""}</span></td>
-                  <td><span className={`pill ${r.stage}`}>{r.tag}</span>{r.weak_drop ? <span className="muted" title="Đợt giảm trước đó dưới 20%"> *</span> : null}</td>
+                  <td><span className={`pill ${r.stage}`}>{r.tag}</span>
+                    {r.test && <span className="muted" style={{ fontSize: 11.5 }}
+                      title={r.test === "Spring" ? "Thủng đáy rồi đóng lại trên đáy (Pha C) trong 15 phiên" : "Quay về gần đáy vùng trong 15 phiên"}>
+                      {" "}🌱{r.test}</span>}
+                    {r.weak_drop ? <span className="muted" title="Đợt giảm trước đó dưới 20%"> *</span> : null}</td>
                   <td className="n">{price(r.c)}</td>
                   <td className={`n ${r.chg >= 0 ? "up" : "down"}`}>{pct(r.chg, 2)}</td>
                   <td className="n" style={{ fontWeight: (r.ready ?? 0) >= 70 ? 700 : 400 }}>{num(r.ready)}</td>

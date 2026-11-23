@@ -127,6 +127,8 @@ def scan_latest(group: str | None = None, date: str | None = None):
                          ready=(p.get("ready") or {}).get("score"), rr=p.get("rr"), plan_kind=p.get("kind"),
                          entry_lo=p.get("entry_lo"), entry_hi=p.get("entry_hi"), stop=p.get("stop"),
                          in_zone=p.get("in_zone"),
+                         test=next((e["k"] for e in reversed(r.get("events", [])) if e["k"] in ("Spring", "ST")), None)
+                         if p.get("kind") == "Spring/Test" else None,
                          tag=r["tag"], stage=r["stage"], c=r["c"], chg=r["chg"],
                          liq=r["liq"], rs5=r.get("rs5"), rs20=r.get("rs20"), rs60=r.get("rs60"),
                          dist=r.get("dist"), extra=r.get("extra"), weak_drop=r.get("weak_drop"),
