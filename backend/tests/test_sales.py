@@ -59,3 +59,19 @@ def test_scan_skips_day_without_session(monkeypatch):
     monkeypatch.setattr(scan, "connect", lambda: None)
     r = scan.run(dry_run=False)
     assert r["skipped"] and r["n"] == 0
+
+
+def test_scan_retry_then_warn(monkeypatch):
+    """Chưa có nến hôm nay: thử lại RETRIES lần, hết lượt thì gửi 1 tin cảnh báo; có nến thì không cảnh báo."""
+    from app import scan
+    sent, calls = [], []
+    monkeypatch.setattr(scan.time, "sleep", lambda s: None)
+    monkeypatch.setattr(scan.notify, "enabled", lambda: True)
+    monkeypatch.setattr(scan.notify, "send_text", sent.append)
+    log = scan.logging.getLogger("t")
+    r = scan.run_with_retry(lambda: calls.append(1) or dict(date="2026-11-23", skipped=True), log)
+    assert len(calls) == scan.RETRIES + 1 and len(sent) == 1 and "23/11" in sent[0] and r["skipped"]
+    sent.clear(); calls.clear()
+    seq = iter([dict(date="2026-11-23", skipped=True), dict(date="2026-11-24", n=700)])
+    r = scan.run_with_retry(lambda: next(seq), log)                  # lần 2 đã có nến: quét bình thường
+    assert r["n"] == 700 and not sent

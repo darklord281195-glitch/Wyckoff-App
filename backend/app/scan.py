@@ -220,6 +220,25 @@ def format_message(scan_date, market, sigs, results, errors, hidden=(), kinds=()
     return "\n".join(lines)
 
 
+RETRIES, RETRY_WAIT = 2, 600      # chưa có nến hôm nay: thử lại sau 10 và 20 phút (trong giới hạn 30 phút của task)
+
+
+def run_with_retry(do, log):
+    """Chưa có phiên hôm nay có thể là nghỉ lễ hoặc VNDirect cập nhật trễ: thử lại, hết lượt thì báo Telegram."""
+    for i in range(RETRIES + 1):
+        r = do()
+        if not r.get("skipped"):
+            return r
+        if i < RETRIES:
+            log.info("Chưa có nến VNINDEX hôm nay, thử lại sau %d phút (%d/%d)", RETRY_WAIT // 60, i + 1, RETRIES)
+            time.sleep(RETRY_WAIT)
+    if notify.enabled():
+        notify.send_text(f"⚠️ Wyckoff: chưa có dữ liệu phiên hôm nay (VNINDEX mới nhất {fmt.day(r['date'])}), "
+                         f"đã thử lại {RETRIES} lần. Nghỉ lễ thì bỏ qua; nếu hôm nay có giao dịch, "
+                         f"mở web bấm Quét lại sau ít phút: {WEB_URL}")
+    return r
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--groups"); ap.add_argument("--symbols")
@@ -242,9 +261,9 @@ def main():
                     symbols=[s.strip().upper() for s in a.symbols.split(",")] if a.symbols else None, log=log, at=d)
             print(f"{d}: {r['n']} mã · {len(r['signals'])} tín hiệu · lỗi {len(r['errors'])}", flush=True)
         return
-    run(groups=a.groups.split(",") if a.groups else None,
-        symbols=[s.strip().upper() for s in a.symbols.split(",")] if a.symbols else None,
-        dry_run=a.dry_run, photos=not a.no_photo, refresh=not a.offline, log=log)
+    run_with_retry(lambda: run(groups=a.groups.split(",") if a.groups else None,
+                               symbols=[s.strip().upper() for s in a.symbols.split(",")] if a.symbols else None,
+                               dry_run=a.dry_run, photos=not a.no_photo, refresh=not a.offline, log=log), log)
     try:
         log.info("Sao lưu danh mục: %s", backup.backup())
     except Exception as e:                       # sao lưu lỗi không được làm hỏng lần quét
