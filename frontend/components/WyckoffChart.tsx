@@ -57,7 +57,36 @@ export function indicators(cl: number[]) {
 
 type Node = { n: number; price: number; label?: string };   // n = số phiên tính từ phiên phân tích
 const SC_KEY = "wyckoff.scenario";                          // localStorage: bật/tắt kịch bản
-const IND_KEY = "wyckoff.indicators";                       // localStorage: bật/tắt RSI/MACD
+const ICHI_KEY = "wyckoff.ichimoku";                        // localStorage: bật/tắt mây Ichimoku
+const ICHI_SHIFT = 26;
+/** Ichimoku 9-26-52: Senkou A/B dời tới trước 26 nến (chỉ số có thể ≥ số nến), Chikou lùi 26 nến */
+export function ichimoku(rows: Ohlcv[]) {
+  const n = rows.length, mid = (i: number, p: number) => {
+    if (i < p - 1) return null;
+    let h = -Infinity, l = Infinity;
+    for (let j = i - p + 1; j <= i; j++) { h = Math.max(h, rows[j].h); l = Math.min(l, rows[j].l); }
+    return (h + l) / 2;
+  };
+  const tenkan = rows.map((_, i) => mid(i, 9)), kijun = rows.map((_, i) => mid(i, 26));
+  const spanA: (number | null)[] = Array(n + ICHI_SHIFT).fill(null), spanB = [...spanA];
+  for (let i = 0; i < n; i++) {
+    const a = tenkan[i], b = kijun[i];
+    spanA[i + ICHI_SHIFT] = a != null && b != null ? (a + b) / 2 : null;
+    spanB[i + ICHI_SHIFT] = mid(i, 52);
+  }
+  const chikou = rows.map((_, i) => (i + ICHI_SHIFT < n ? rows[i + ICHI_SHIFT].c : null));
+  return { tenkan, kijun, spanA, spanB, chikou };
+}
+/** k ngày giao dịch (thứ 2–6) hoặc k tuần sau ngày d */
+function futureDays(d: string, k: number, tf: Tf) {
+  const out: string[] = [], t = new Date(d + "T00:00:00Z");
+  while (out.length < k) {
+    t.setUTCDate(t.getUTCDate() + (tf === "W" ? 7 : 1));
+    if (tf === "W" || (t.getUTCDay() !== 0 && t.getUTCDay() !== 6)) out.push(t.toISOString().slice(0, 10));
+  }
+  return out;
+}
+const IND_KEY = "wyckoff.indicators";                      // localStorage: bật/tắt RSI/MACD
 
 /** Kịch bản minh họa theo kế hoạch: nhánh thành công (vào -> T1 -> T2...) và nhánh hỏng (vào -> cắt lỗ).
  *  Thời gian ước lượng: vào sau 1 phiên nếu đang trong vùng, không thì 5 phiên; T1 trong ¾ hạn time_stop; mỗi mục tiêu sau +15 phiên. */
@@ -104,6 +133,12 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
     setShowInd(!showInd);
     try { localStorage.setItem(IND_KEY, showInd ? "0" : "1"); } catch { /* không có storage */ }
   };
+  const [showIchi, setShowIchi] = useState(false);            // mây Ichimoku trên biểu đồ giá: mặc định tắt
+  useEffect(() => { try { if (localStorage.getItem(ICHI_KEY) === "1") setShowIchi(true); } catch { /* không có storage */ } }, []);
+  const toggleIchi = () => {
+    setShowIchi(!showIchi);
+    try { localStorage.setItem(ICHI_KEY, showIchi ? "0" : "1"); } catch { /* không có storage */ }
+  };
   const sc = useMemo(() => (tf === "D" && unit === "k" && analysis ? scenario(analysis.plan, analysis.c) : null), [tf, unit, analysis]);
 
   useEffect(() => {
@@ -127,6 +162,32 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
       },
     });
     chartRef.current = chart;
+    if (showIchi) {   // vẽ đầu tiên để nến, KL, vùng chọn nằm trên mây
+      const ic = ichimoku(rows), n = rows.length;
+      const fut = futureDays(rows[n - 1].d, ICHI_SHIFT, tf);
+      const t = (i: number) => (i < n ? rows[i].d : fut[i - n]) as Time;      // chỉ số nến -> ngày (gồm 26 nến tương lai)
+      const base = { priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false };
+      // mây = vùng tô từ max(A,B) xuống, rồi vùng màu nền từ min(A,B) xuống che phần dưới
+      // shortcut: mặt nạ màu nền che lưới dọc phía dưới mây; lightweight-charts 4 không có kiểu tô giữa hai đường
+      const hiA: { time: Time; value: number; topColor: string; bottomColor: string; lineColor: string }[] = [];
+      const loA: { time: Time; value: number }[] = [];
+      ic.spanA.forEach((a, i) => {
+        const b = ic.spanB[i];
+        if (a == null || b == null) return;
+        const col = a >= b ? up + "33" : down + "33";
+        hiA.push({ time: t(i), value: Math.max(a, b), topColor: col, bottomColor: col, lineColor: "transparent" });
+        loA.push({ time: t(i), value: Math.min(a, b) });
+      });
+      chart.addAreaSeries({ ...base, lineWidth: 1 }).setData(hiA);
+      chart.addAreaSeries({ ...base, lineColor: "transparent", topColor: surface, bottomColor: surface }).setData(loA);
+      const line = (xs: (number | null)[], color: string, title: string) => chart.addLineSeries({ ...base, color, lineWidth: 1, title })
+        .setData(xs.flatMap((v, i) => (v == null ? [] : [{ time: t(i), value: v }])));
+      line(ic.spanA, up + "aa", "");
+      line(ic.spanB, down + "aa", "");
+      line(ic.tenkan, "#2563eb", "Tenkan 9");
+      line(ic.kijun, "#be185d", "Kijun 26");
+      line(ic.chikou, "#94a3b8", "Chikou");
+    }
     if (sel) {   // tô nền khoảng đang phân tích (vẽ trước để nằm dưới nến)
       const a = k(sel.from), b = k(sel.to);
       // vùng (area) giá trị 1 trên thang 0–1 riêng: phủ kín từ trên xuống dưới, không bị sọc như cột histogram
@@ -239,6 +300,7 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
       failLine.setData(path(sc.fail)); failLine.setMarkers(dot(sc.fail, down));
       scEnd = iA + Math.max(sc.ok[sc.ok.length - 1].n, sc.fail[sc.fail.length - 1].n);
     }
+    if (showIchi) scEnd = Math.max(scEnd, rows.length - 1 + ICHI_SHIFT);   // thấy phần mây phía trước
 
     // đang xem một khoảng/ngày: căn khoảng đó vào giữa, chừa hai bên để thấy trước và sau
     const i0 = sel ? rows.findIndex((r) => r.d >= k(sel.from)) : -1;
@@ -284,7 +346,7 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
       chart.timeScale().subscribeVisibleLogicalRangeChange((r) => { if (r) ts.setVisibleLogicalRange(r); });
     }
     return () => { sub?.remove(); chart.remove(); chartRef.current = null; };
-  }, [rowsOf, tf, analysis, unit, sel?.from, sel?.to, sc, showSc, showInd]);
+  }, [rowsOf, tf, analysis, unit, sel?.from, sel?.to, sc, showSc, showInd, showIchi]);
 
   // chế độ chọn khoảng: tắt kéo/zoom của biểu đồ để chuột dùng cho việc chọn
   useEffect(() => {
@@ -323,6 +385,9 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
         {sc && <button className={`btn${showSc ? " primary" : ""}`} onClick={toggleSc}
           title="Đường đứt nét: xanh = kịch bản thành công tới các mục tiêu, đỏ = kịch bản hỏng về cắt lỗ">
           {showSc ? "✓ Kịch bản" : "Kịch bản"}</button>}
+        <button className={`btn${showIchi ? " primary" : ""}`} onClick={toggleIchi}
+          title="Ichimoku 9-26-52: mây xanh/đỏ (Senkou A/B, dời trước 26 nến), Tenkan xanh dương, Kijun hồng, Chikou xám">
+          {showIchi ? "✓ Ichimoku" : "Ichimoku"}</button>
         <button className={`btn${showInd ? " primary" : ""}`} onClick={toggleInd}
           title="RSI 14 (tím, vạch 70/30) và MACD 12-26-9 (xanh = MACD, cam = tín hiệu, cột = chênh lệch)">
           {showInd ? "✓ RSI/MACD" : "RSI/MACD"}</button>
