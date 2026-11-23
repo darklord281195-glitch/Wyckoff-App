@@ -37,6 +37,8 @@ copy ..\.env.example ..\.env
 
 Log mỗi lần quét: `logs\scan-YYYYMMDD.log`.
 
+**Ngày nghỉ lễ:** lần quét tự động thấy VNINDEX chưa có nến hôm nay thì thử lại sau 10 và 20 phút. Vẫn không có thì bỏ qua (không quét, không gửi tín hiệu) và gửi một tin ⚠️ trên Telegram. Nếu hôm đó thật ra có giao dịch (VNDirect cập nhật trễ), mở web bấm Quét lại.
+
 **Xem lại phiên cũ.** Mỗi lần quét lưu kết quả theo ngày phiên (ngày của nến VNINDEX cuối, không phải ngày bấm quét).
 - Trang Tổng quan có ô **Phiên** để chọn các phiên đã quét. Khi xem phiên cũ thì nút Quét lại bị ẩn.
 - Trang mã có ô **Ngày**: chọn ngày nào cũng được, app tính lại phân tích và kế hoạch chỉ với dữ liệu tới ngày đó. Khi xem ngày cũ thì phần ghi nhận lệnh mua bị ẩn.
