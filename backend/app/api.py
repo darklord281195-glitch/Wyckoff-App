@@ -129,6 +129,10 @@ def scan_latest(group: str | None = None, date: str | None = None):
                          in_zone=p.get("in_zone"),
                          test=next((e["k"] for e in reversed(r.get("events", [])) if e["k"] in ("Spring", "ST")), None)
                          if p.get("kind") == "Spring/Test" else None,
+                         # % giá so với đáy SC, chỉ khi còn trong/quanh vùng tích lũy (chưa SOS)
+                         sc=round((r["c"] / r["range"]["sup"] - 1) * 100, 1)
+                         if r.get("range") and r["stage"] in ("BC", "below", "near") else None,
+                         vx=r.get("vx"),
                          tag=r["tag"], stage=r["stage"], c=r["c"], chg=r["chg"],
                          liq=r["liq"], rs5=r.get("rs5"), rs20=r.get("rs20"), rs60=r.get("rs60"),
                          dist=r.get("dist"), extra=r.get("extra"), weak_drop=r.get("weak_drop"),

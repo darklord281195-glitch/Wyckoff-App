@@ -30,6 +30,7 @@ export type Row = {
   weak_drop: boolean; levels: Levels; pos52: number;
   ready: number | null; rr: number | null; plan_kind: string | null;
   entry_lo: number | null; entry_hi: number | null; stop: number | null; in_zone: boolean | null;
+  sc?: number | null; vx?: number | null;   // % so với đáy SC (khi chưa SOS); KL phiên cuối / TB20
   test?: "Spring" | "ST" | null;   // Spring/ST trong 15 phiên gần nhất (kế hoạch Spring/Test)
   fx10: number | null;   // khối ngoại mua ròng 10 phiên, tỷ đồng
 };
