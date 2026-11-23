@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import {
   createChart, ColorType, CrosshairMode, LineStyle, IChartApi, SeriesMarker, Time,
 } from "lightweight-charts";
-import { num, type Analysis, type Ohlcv, type Plan, type PlanStats } from "@/lib/api";
+import { num, pct, fullDate, price as fmtPrice, type Analysis, type Ohlcv, type Plan, type PlanStats } from "@/lib/api";
 
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 type Tf = "D" | "W";
@@ -120,6 +120,7 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
   const rowsOf = useMemo(() => ({ D: data, W: group(data, KEY.W) }), [data]);
   const [picking, setPicking] = useState(false);              // đang ở chế độ kéo chọn khoảng
   const [drag, setDrag] = useState<{ x0: number; x1: number } | null>(null);
+  const [tip, setTip] = useState<{ x: number; y: number; label: string; price: number } | null>(null);   // hover điểm kịch bản
   const [showSc, setShowSc] = useState(true);                 // vẽ kịch bản Wyckoff
   useEffect(() => { try { if (localStorage.getItem(SC_KEY) === "0") setShowSc(false); } catch { /* không có storage */ } }, []);
   const toggleSc = () => {
@@ -298,6 +299,14 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
       okLine.setData(path(sc.ok)); okLine.setMarkers(dot(sc.ok, green));
       const failLine = chart.addLineSeries({ ...dash, color: down });
       failLine.setData(path(sc.fail)); failLine.setMarkers(dot(sc.fail, down));
+      // hover vào điểm Vào/T1/T2/T3/Cắt lỗ: % lời/lỗ nếu mua ở giá đóng cửa phiên phân tích
+      const tips = new Map<string, { label: string; price: number }>();
+      [...sc.ok, ...sc.fail].filter((x) => x.label).forEach((x) => tips.set(dayAt(x.n), { label: x.label!, price: x.price }));
+      chart.subscribeCrosshairMove((p) => {
+        const hit = p.time && p.point ? tips.get(p.time as string) : undefined;
+        const y = hit ? okLine.priceToCoordinate(hit.price) : null;
+        setTip(hit && p.point && y != null ? { x: p.point.x, y, label: hit.label, price: hit.price } : null);
+      });
       scEnd = iA + Math.max(sc.ok[sc.ok.length - 1].n, sc.fail[sc.fail.length - 1].n);
     }
     if (showIchi) scEnd = Math.max(scEnd, rows.length - 1 + ICHI_SHIFT);   // thấy phần mây phía trước
@@ -345,7 +354,7 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
       if (r0) ts.setVisibleLogicalRange(r0);
       chart.timeScale().subscribeVisibleLogicalRangeChange((r) => { if (r) ts.setVisibleLogicalRange(r); });
     }
-    return () => { sub?.remove(); chart.remove(); chartRef.current = null; };
+    return () => { sub?.remove(); chart.remove(); chartRef.current = null; setTip(null); };
   }, [rowsOf, tf, analysis, unit, sel?.from, sel?.to, sc, showSc, showInd, showIchi]);
 
   // chế độ chọn khoảng: tắt kéo/zoom của biểu đồ để chuột dùng cho việc chọn
@@ -396,6 +405,16 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
       </div>
       <div style={{ position: "relative" }}>
         <div ref={box} style={{ width: "100%", height: 460 }} />
+        {tip && analysis && (
+          <div className="card" style={{
+            position: "absolute", left: tip.x + 12, top: Math.max(0, tip.y - 52), zIndex: 5, pointerEvents: "none",
+            padding: "6px 10px", margin: 0, fontSize: 12.5, whiteSpace: "nowrap", boxShadow: "0 2px 8px #0002",
+          }}>
+            <b>{tip.label}</b> {fmtPrice(tip.price, unit)}{" "}
+            <b className={tip.price >= analysis.c ? "up" : "down"}>{pct((tip.price / analysis.c - 1) * 100, 1)}</b>
+            <div className="muted">nếu mua ở {fmtPrice(analysis.c, unit)} (đóng cửa {fullDate(analysis.d)})</div>
+          </div>
+        )}
         {picking && (   // lớp phủ nhận thao tác kéo khi đang chọn khoảng
           <div style={{ position: "absolute", inset: 0, zIndex: 10, cursor: "col-resize", touchAction: "none" }}
             onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); const x = relX(e); setDrag({ x0: x, x1: x }); }}
