@@ -98,8 +98,8 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
     try { localStorage.setItem(SC_KEY, showSc ? "0" : "1"); } catch { /* không có storage */ }
   };
   const box2 = useRef<HTMLDivElement>(null);
-  const [showInd, setShowInd] = useState(true);               // RSI + MACD bên dưới
-  useEffect(() => { try { if (localStorage.getItem(IND_KEY) === "0") setShowInd(false); } catch { /* không có storage */ } }, []);
+  const [showInd, setShowInd] = useState(false);              // RSI + MACD bên dưới: mặc định tắt
+  useEffect(() => { try { if (localStorage.getItem(IND_KEY) === "1") setShowInd(true); } catch { /* không có storage */ } }, []);
   const toggleInd = () => {
     setShowInd(!showInd);
     try { localStorage.setItem(IND_KEY, showInd ? "0" : "1"); } catch { /* không có storage */ }
