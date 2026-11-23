@@ -77,6 +77,7 @@ Câu mô tả đèn ghi rõ lý do.
 | Phần | Cách tính |
 |---|---|
 | **Điểm sẵn sàng 0–100** | Cung cạn (KL 10 phiên so với KL quanh SC) · đáy nâng / Spring KL thấp · vị trí trong vùng · RS20/RS60 dương · độ dài Nhân (số phiên từ SC). 🔭 *Tiềm năng sớm* = Pha B/C, điểm ≥ 70, cách trần ≤ 8% |
+| **Đỉnh hạ** | Trong vùng chưa SOS: ≥ 2 đỉnh hồi sau AR thấp dần (đỉnh = cao nhất ±5 phiên) mà giá chưa đóng cửa vượt đỉnh gần nhất. Đánh dấu đỏ trên biểu đồ, ghi ở Ghi chú, cảnh báo kèm tín hiệu Spring. Chỉ để tham khảo: backtest 2019–2026 chỉ 14/1.326 lệnh mua rơi vào trường hợp này (điểm sẵn sàng đã loại phần lớn), quá ít để kết luận |
 | **Vùng vào** | *LPS*: đáy LPS (≥ trần −6%) → trần +3% · *Backup* (sau SOS): trần → trần +3% · *Phá trần*: đóng cửa vượt trần với KL ≥ 1,5 lần TB20 · *Spring/Test*: đáy → +4%, tỷ trọng nhỏ |
 | **Cắt lỗ** | Theo cấu trúc: dưới đáy LPS / Spring / trần cũ −5–6%, trừ thêm 1–2%. Theo thời gian: 20 phiên chưa chạm T1 thì thoát. Cảnh báo nếu cắt lỗ xa hơn 8% |
 | **Mục tiêu** | T kháng cự: đỉnh cũ gần nhất, chốt lời một phần · **Nhân–Quả**: đếm ngang Point & Figure (giá đóng cửa, đảo 3 ô) từ SC tới LPS. *Thận trọng* = đáy + số cột × ô × 3, *mở rộng* = đường đếm + số cột × ô × 3 ⭐ |

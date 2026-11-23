@@ -59,7 +59,9 @@ def build(sym: str, r: dict, prev: dict | None, in_watchlist: bool) -> list[dict
             # Spring: thủng đáy SC rồi đóng lại trên đáy, KL dưới TB20
             # ST: chạm trong 2% quanh đáy với KL rất thấp (cung cạn rõ)
             if (e["k"] == "Spring" and vx < 1.0) or (e["k"] == "ST" and e["price"] <= sup * 1.02 and vx < 0.7):
-                add("Spring", f"{sym} {_p(r['c'])} · {e['k']} về {_p(e['price'])} KL x{num(vx, 1)} · {pt}")
+                lh = r.get("lh")
+                add("Spring", f"{sym} {_p(r['c'])} · {e['k']} về {_p(e['price'])} KL x{num(vx, 1)} · {pt}"
+                    + (f" · ⚠ {len(lh)} đỉnh hạ, chờ vượt {_p(lh[-1]['h'])}" if lh else ""))
         if r["tag"] == "D sớm" and (not prev or prev.get("tag") != "D sớm"):
             add("D sớm", f"{sym} {_p(r['c'])} · {r['extra']} · điểm {ready} · {pt}")
         elif r["stage"] in ("BC", "near") and ready >= READY_MIN and (r.get("dist") or -99) >= -8:

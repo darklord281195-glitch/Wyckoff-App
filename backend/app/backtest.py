@@ -92,7 +92,7 @@ def run_symbol(sym, R, IDX, start="0000", end="9999", orders=None, slip=SLIP, ti
         value = (sum(z["frac"] * z["px"] for z in s["exits"]) + s["left"] * R[e]["c"]) * (1 - SELL_FEE - slip)
         cost = px * (1 + BUY_FEE + slip)
         trades.append(dict(sym=sym, kind=x["kind"], plan=p["kind"], sig_d=D[i], entry_d=D[f], entry=round(px, 3),
-                           stop=p["stop"], t1=targets[0] if targets else None, ready=p["ready"]["score"], rr=p.get("rr"),
+                           stop=p["stop"], t1=targets[0] if targets else None, ready=p["ready"]["score"], rr=p.get("rr"), lh=len(r.get("lh") or []),
                            exit_d=D[e], why="đang giữ" if s["open"] else s["exits"][-1]["why"], hit=s["hit"],
                            days=e - f, R=round((value - cost) / max(px - p["stop"], px * 1e-3), 2),
                            ret=round((value / cost - 1) * 100, 2), open=s["open"]))
@@ -280,6 +280,8 @@ def run_compare(conn, syms, a, slip):
     compare(trades, "f3) Tăng trưởng > 0 và ROE > 10%", lambda t: grow(t) and roe(t), lambda t: has_g(t) and has_r(t))
     compare(trades, "f4) Luật ẩn hiện tại + f3", lambda t: not hidden(t) and grow(t) and roe(t),
             lambda t: has_g(t) and has_r(t))
+    compare(trades, "g) Không có chuỗi đỉnh hạ trong vùng", lambda t: not t["lh"])
+    compare(trades, "g2) Luật ẩn hiện tại + không đỉnh hạ", lambda t: not hidden(t) and not t["lh"])
     print("\nd) Cắt lỗ theo thời gian (cùng điểm vào, chỉ khác số phiên chờ chạm T1)")
     print(f"  {'phiên':<8}{'giai đoạn':<10}{'lệnh':>7}{'thắng%':>8}{'R TB':>7}{'KTC95% R':>16}{'phiên giữ':>11}")
     for ts in tss:

@@ -161,7 +161,7 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
       .map((e) => ({
         time: k(e.d) as Time,
         position: e.pos === "high" ? "aboveBar" : "belowBar",
-        color: accent, shape: e.pos === "high" ? "arrowDown" : "arrowUp",
+        color: e.k === "Đỉnh hạ" ? down : accent, shape: e.pos === "high" ? "arrowDown" : "arrowUp",
         // KL/TB20 là của phiên ngày, chỉ ghi trên khung ngày
         text: e.k + (e.vx && tf === "D" ?` x${e.vx.toLocaleString("vi-VN", { maximumFractionDigits: 1 })}` : ""),
       }));

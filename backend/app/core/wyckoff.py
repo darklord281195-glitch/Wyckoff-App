@@ -117,6 +117,25 @@ ACC_NOTE = {"A": "Pha A: vừa dừng giảm, chưa có ST. Chưa mua.",
             "E": "Pha E: đã tăng xa vùng. Không mua đuổi, chờ nền mới."}
 
 
+def lower_highs(R, ar, w=5):
+    """Chuỗi đỉnh hạ sau AR (gồm cả AR): list chỉ số các đỉnh, mỗi đỉnh thấp hơn đỉnh trước.
+    Đỉnh = phiên có H cao nhất trong ±w phiên (cần ≥ 2 phiên bên phải để xác nhận).
+    Chỉ tính khi giá chưa đóng cửa vượt đỉnh gần nhất (chuỗi chưa bị phá); [] nếu không có."""
+    n = len(R)
+    H = [x["h"] for x in R]
+    piv = [i for i in range(ar + 1, n - 2)            # > bên trái (kể cả AR, bỏ đỉnh bằng nhau), ≥ bên phải
+           if H[i] > max(H[max(ar, i - w):i]) and H[i] >= max(H[i + 1:i + w + 1])]
+    chain = [ar]
+    for i in piv:
+        if R[i]["h"] < R[chain[-1]]["h"]:
+            chain.append(i)
+        else:                        # đỉnh mới cao hơn: chuỗi đỉnh hạ bắt đầu lại từ đỉnh này
+            chain = [i]
+    if len(chain) < 3 or max(x["c"] for x in R[chain[-1]:]) > R[chain[-1]]["h"]:
+        return []
+    return chain
+
+
 def classify(r):
     """Mã đang giống biến thể sơ đồ nào: dict(variant acc1/acc2/dist1/dist2/None, phase A–E/None, title, note)."""
     dd = r.get("distrib")
@@ -159,6 +178,9 @@ def classify(r):
         title = NAMES[v]
     if dd:   # vùng đi ngang ngay sau đợt tăng ≥ 30%: đọc theo tích lũy hay phân phối đều được
         note += " Lưu ý: vùng này nằm ngay sau một đợt tăng mạnh (BC), cũng có thể là phân phối; SOS hay SOW sẽ cho biết."
+    if r.get("lh"):
+        note += (f" ⚠ {len(r['lh'])} đỉnh hạ liên tiếp: mỗi nhịp hồi yếu hơn, cầu chưa vào. "
+                 f"Spring/ST chỉ đáng tin khi giá đóng cửa vượt {price(r['lh'][-1]['h'])} với KL tăng.")
     return dict(variant=v, phase=ph, title=title, note=note)
 
 
@@ -255,6 +277,11 @@ def analyse(R, IDX=None, floor=None, lookback=190, keep_distrib=False):
                 extra = (f"bật +{num(rise * 100)}% từ đáy {price(R[t]['l'])} ngày {day(R[t]['d'])}"
                          f"{' (Spring)' if R[t]['l'] < sup else ''}")
                 levels = dict(support=R[t]["l"], resistance=res, invalid=min(R[t]["l"], sup))
+    lh = lower_highs(R, ar) if sos is None else []     # sau SOS thì đỉnh hạ không còn ý nghĩa của vùng
+    for i in lh[1:]:
+        events.append(ev(i, "Đỉnh hạ", "high"))
+    if lh:
+        extra = (f"{extra}, " if extra else "") + f"{len(lh) - 1} đỉnh hạ (cầu yếu), phá chuỗi khi đóng > {price(R[lh[-1]]['h'])}"
     weak_drop = drop < 0.20
     stage = ("D" if tag.startswith("D") else "near" if tag == "sát trần" else "below" if tag == "dưới hỗ trợ" else
              "E" if tag == "E?" else "failed" if tag == "SOS hỏng" else "BC")
@@ -264,7 +291,8 @@ def analyse(R, IDX=None, floor=None, lookback=190, keep_distrib=False):
                range=dict(start=R[sc]["d"], sup=sup, res=res, sc_d=R[sc]["d"], ar_d=R[ar]["d"]),
                sos=None if sos is None else dict(d=R[sos]["d"], v=round(V[sos], 2),
                                                  vx=_ratio(V[sos], _mean(V[sos-20:sos]))),
-               events=events, levels=levels)
+               events=events, levels=levels,
+               lh=[dict(d=R[i]["d"], h=R[i]["h"]) for i in lh[1:]])
     out["plan"] = make_plan(R, out, dict(sc=sc, ar=ar, sos=sos, pk=pk, lps=lps, t=t), floor)
     out["supply"] = supply_sign(R)
     out["schema"] = classify(out)

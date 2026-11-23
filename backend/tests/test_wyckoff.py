@@ -140,3 +140,14 @@ def test_classify_reacc_redist():
     assert (classify(br)["variant"], classify(br)["phase"]) == ("redist", "D")
     br["events"][-1]["vx"] = 0.8                        # KL thấp: vẫn có thể là Spring
     assert classify(br)["variant"] == "acc1"
+
+
+def test_lower_highs():
+    from app.core.wyckoff import lower_highs
+    # AR ở 0 (h=20), rồi các nhịp hồi 19 → 18 → 17, giá đang ở đáy
+    hs = [20, 16, 15, 16, 19, 16, 15, 14, 15, 18, 15, 14, 13, 14, 17, 14, 13, 12, 12]
+    R = [dict(h=h, l=h - 1, c=h - 0.5) for h in hs]
+    ch = lower_highs(R, 0, w=2)
+    assert [hs[i] for i in ch] == [20, 19, 18, 17]
+    R[-1]["c"] = 17.5            # đóng vượt đỉnh hạ gần nhất: chuỗi bị phá
+    assert lower_highs(R, 0, w=2) == []
