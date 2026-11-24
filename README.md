@@ -114,6 +114,7 @@ Link trang có `?from=…&at=…` nên tải lại hay chia sẻ vẫn đúng kh
 **Kịch bản Wyckoff** (nút **Kịch bản** trên khung Ngày, mặc định bật): vẽ đường đứt nét từ phiên phân tích theo kế hoạch giao dịch.
 - Xanh = kịch bản thành công: về/vượt vùng vào, rồi lần lượt tới T1, T2… Đỏ = kịch bản hỏng: từ điểm vào về cắt lỗ.
 - Thời gian là ước lượng: vào sau 1 phiên nếu đang trong vùng, không thì 5 phiên; T1 sau 15 phiên (trong hạn 20 phiên của cắt lỗ theo thời gian); mỗi mục tiêu sau thêm 15 phiên.
+- Nhánh xanh đi **zigzag** như giá thật: mỗi đoạn đi lên chia thành các nhịp lên – điều chỉnh (~1 nhịp mỗi 7 phiên, tối đa 4), nhịp tăng ít nhất ~1,2 ATR 14 và điều chỉnh ít nhất ~40% nhịp tăng, vẫn đi qua đúng các mốc Vào/T1/T2/T3. Hai đường chấm mờ hai bên là **dải biến động ~68%**: lộ trình × e^(±σ·√n), σ = độ lệch chuẩn lợi nhuận ngày 60 phiên qua, n = số phiên tính từ phiên phân tích.
 - Chỉ vẽ khi kế hoạch có vùng vào, cắt lỗ và mục tiêu cao hơn điểm vào (không vẽ cho "Không vào", "Đang tăng (Pha E)").
 - Đây là minh họa kế hoạch, không phải dự báo. Khi xem phiên cũ, kịch bản nằm đè lên nến thực tế để so.
 - Dưới kịch bản có **tỷ lệ lịch sử** của loại kế hoạch đó (chạm T1, cắt lỗ, hết thời gian, R TB và KTC95%), lấy từ lần chạy `app.backtest` đầy đủ gần nhất (bảng `backtest_stats`). Chạy backtest lại khi đổi luật để số liệu khớp.

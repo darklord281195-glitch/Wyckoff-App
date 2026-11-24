@@ -104,6 +104,44 @@ function scenario(p: Plan | null | undefined, c: number): { ok: Node[]; fail: No
   return { ok, fail: [{ n: nIn, price: entry }, { n: nIn + 5, price: p.stop, label: "Cắt lỗ" }] };
 }
 
+const PULLBACK = 0.4;      // mỗi nhịp điều chỉnh ít nhất ~40% nhịp tăng trước đó (Backup/LPS điển hình)
+const WAVE_DAYS = 7;       // ~1 nhịp lên–điều chỉnh mỗi 7 phiên (1–4 nhịp mỗi đoạn)
+const MIN_SWING = 1.2;     // nhịp tăng tối thiểu ~1,2 ATR: đoạn đi ngang (T1 ≈ T2) vẫn dao động như giá thật
+
+/** Chèn các nhịp lên–điều chỉnh vào từng đoạn đi lên của lộ trình (từ điểm Vào trở đi), vẫn đi qua đúng mọi mốc.
+ *  Minh họa hình dạng giá thường gặp, không phải dự báo từng nhịp. */
+function zigzag(nodes: Node[], atr: number): Node[] {
+  const out: Node[] = [nodes[0]];
+  nodes.slice(1).forEach((b, j) => {
+    const a = nodes[j], rise = b.price - a.price, len = b.n - a.n;
+    // đoạn đầu (giá hiện tại -> điểm Vào) và đoạn đi xuống giữ thẳng; đoạn đi lên chia nhịp theo thời gian
+    const waves = j === 0 || rise < 0 || !(atr > 0) ? 1 : Math.max(1, Math.min(4, Math.round(len / WAVE_DAYS)));
+    const gain = rise / waves, dur = len / waves;
+    const impulse = Math.max(gain / (1 - PULLBACK), MIN_SWING * atr);   // nhịp lên; điều chỉnh = impulse − gain
+    for (let w = 0; w < waves - 1; w++) {
+      const base = a.price + gain * w, t0 = a.n + dur * w;
+      out.push({ n: Math.round(t0 + dur * 0.6), price: base + impulse });   // đỉnh nhịp
+      out.push({ n: Math.round(t0 + dur), price: base + gain });            // đáy điều chỉnh (cao dần đều)
+    }
+    out.push(b);
+  });
+  return out.filter((x, i, arr) => i === 0 || x.n > arr[i - 1].n);                 // bỏ điểm trùng phiên
+}
+
+/** ATR 14 và độ lệch chuẩn lợi nhuận ngày (60 phiên) tính tới phiên i. */
+function volatility(rows: Ohlcv[], i: number) {
+  const tr = [], lr = [];
+  for (let k = Math.max(1, i - 59); k <= i; k++) {
+    const p = rows[k - 1].c, b = rows[k];
+    tr.push(Math.max(b.h - b.l, Math.abs(b.h - p), Math.abs(b.l - p)));
+    if (p > 0 && b.c > 0) lr.push(Math.log(b.c / p));
+  }
+  const atr = tr.slice(-14).reduce((s, x) => s + x, 0) / Math.max(1, Math.min(14, tr.length));
+  const mu = lr.reduce((s, x) => s + x, 0) / Math.max(1, lr.length);
+  const sd = Math.sqrt(lr.reduce((s, x) => s + (x - mu) ** 2, 0) / Math.max(1, lr.length - 1));
+  return { atr, sd };
+}
+
 /** Nến ngày/tuần + KL + vùng SC–AR + mốc Wyckoff. Phân tích luôn theo khung ngày; khung tuần để xem bối cảnh. */
 export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats }: {
   data: Ohlcv[]; analysis: Analysis | null; unit: "pt" | "k";
@@ -295,8 +333,15 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
       const dot = (nodes: Node[], color: string): SeriesMarker<Time>[] => nodes.filter((x) => x.label)
         .map((x) => ({ time: dayAt(x.n) as Time, position: "inBar", color, shape: "circle", text: x.label }));
       const green = css("--green") || up;
+      const vol = volatility(rows, iA);
+      const okPath = path(zigzag(sc.ok, vol.atr));
+      // dải biến động ~68%: lộ trình × e^(±σ·√n), σ = độ lệch chuẩn lợi nhuận ngày 60 phiên qua
+      const band = (sign: number) => okPath.map((p, n) => ({ time: p.time, value: p.value * Math.exp(sign * vol.sd * Math.sqrt(n)) }));
+      const faint = { lineWidth: 1 as const, lineStyle: LineStyle.Dotted, priceLineVisible: false, lastValueVisible: false,
+        crosshairMarkerVisible: false, color: green + "80" };
+      if (vol.sd > 0) { chart.addLineSeries(faint).setData(band(1)); chart.addLineSeries(faint).setData(band(-1)); }
       const okLine = chart.addLineSeries({ ...dash, color: green });
-      okLine.setData(path(sc.ok)); okLine.setMarkers(dot(sc.ok, green));
+      okLine.setData(okPath); okLine.setMarkers(dot(sc.ok, green));
       const failLine = chart.addLineSeries({ ...dash, color: down });
       failLine.setData(path(sc.fail)); failLine.setMarkers(dot(sc.fail, down));
       // hover vào điểm Vào/T1/T2/T3/Cắt lỗ: % lời/lỗ nếu mua ở giá đóng cửa phiên phân tích
@@ -429,8 +474,10 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
       </div>
       {showInd && <div ref={box2} style={{ width: "100%", height: 220, marginTop: 4 }} />}
       {sc && showSc && <p className="muted" style={{ margin: "6px 0 0", fontSize: 12.5 }}>
-        Đường đứt nét: <span className="up">xanh</span> = kịch bản thành công (vào → các mục tiêu Nhân–Quả),{" "}
-        <span className="down">đỏ</span> = kịch bản hỏng (về cắt lỗ). Minh họa theo kế hoạch Wyckoff, thời gian ước lượng — không phải dự báo.
+        Đường đứt nét: <span className="up">xanh</span> = kịch bản thành công (vào → các mục tiêu Nhân–Quả, đi theo nhịp lên –
+        điều chỉnh ~40%, độ lớn nhịp theo ATR 14 của mã), <span className="down">đỏ</span> = kịch bản hỏng (về cắt lỗ).
+        Hai đường chấm mờ = khoảng giá thường dao động (~68%) nếu mã biến động như 60 phiên qua.
+        Hình dạng và thời gian chỉ là minh họa — không phải dự báo từng nhịp.
         <br />{stats ? <>
           <b>Lịch sử {stats.period}</b> ({num(stats.n)} lệnh {stats.plan}, đã tính phí + trượt giá {num(stats.slip, 2)}%/chiều{stats.n < 30 ? ", ít mẫu" : ""}):{" "}
           chạm T1 <b>{num(stats.hit_t1)}%</b> · cắt lỗ <b>{num(stats.stop)}%</b> · hết thời gian {num(stats.timeout)}% ·
