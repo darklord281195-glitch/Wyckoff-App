@@ -178,6 +178,13 @@ def _analysis(code: str, at: str | None = None, start: str | None = None):
     return R, analyse(R, IDX if code != INDEX else None, floor, lookback, keep_distrib=bool(start))
 
 
+@app.get("/api/listing")
+def listing_get():
+    """Danh sách mã cho ô tìm kiếm: [{sym, name, floor}], kèm VNINDEX."""
+    rows = [dict(sym=s, name=v.get("name"), floor=v.get("floor")) for s, v in sorted(listing(conn).items())]
+    return [dict(sym=INDEX, name="Chỉ số VN-Index", floor="HOSE")] + rows
+
+
 @app.get("/api/symbols/{code}")
 def symbol(code: str, at: dt.date | None = None, start: dt.date | None = Query(None, alias="from")):
     """Phân tích tại phiên `at` (chỉ dữ liệu tới đó; có `from` thì chỉ dò vùng trong khoảng from–at).

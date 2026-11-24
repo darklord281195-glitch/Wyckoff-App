@@ -134,3 +134,14 @@ def test_fundamentals_point_in_time():
 def test_quarters_back():
     from app.core.fundamentals import _quarters_back
     assert _quarters_back("2026-09-30", 4) == "2025-09-30" and _quarters_back("2026-03-31", 1) == "2025-12-31"
+
+
+def test_listing_api(tmp_path, monkeypatch):
+    from app.universe import SCHEMA as LISTING_SCHEMA
+    conn = connect(tmp_path / "t.db")
+    conn.executescript(LISTING_SCHEMA)
+    conn.executemany("INSERT INTO listing(sym,floor,name) VALUES (?,?,?)", [("HPG", "HOSE", "Hòa Phát"), ("ACB", "HOSE", "ACB")])
+    conn.commit()
+    monkeypatch.setattr(api, "conn", conn)
+    got = TestClient(api.app).get("/api/listing").json()
+    assert [x["sym"] for x in got] == ["VNINDEX", "ACB", "HPG"] and got[2]["name"] == "Hòa Phát"

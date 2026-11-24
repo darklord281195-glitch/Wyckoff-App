@@ -8,6 +8,7 @@ const WyckoffChart = dynamic(() => import("@/components/WyckoffChart"), { ssr: f
 import PlanCard from "@/components/PlanCard";
 import ForeignCard from "@/components/ForeignCard";
 import FundamentalsCard from "@/components/FundamentalsCard";
+import SymbolSearch from "@/components/SymbolSearch";
 import WyckoffSchematic, { WYCKOFF_NOTES, DIST_NOTES } from "@/components/WyckoffSchematic";
 
 const STAGE_HINT: Record<string, string> = {
@@ -54,8 +55,9 @@ export default function SymbolPage({ params }: { params: Promise<{ code: string 
     load();
   };
 
-  if (err) return <div className="card">Lỗi: {err}{at && <> <button className="btn" onClick={() => pickDay(null)}>Về phiên mới nhất</button></>}</div>;
-  if (!d) return <div className="card">Đang tải {code}…</div>;
+  if (err) return <div className="card row">Lỗi: {err}{at && <button className="btn" onClick={() => pickDay(null)}>Về phiên mới nhất</button>}
+    <SymbolSearch current={code} /></div>;
+  if (!d) return <div className="card row">Đang tải {code}… <SymbolSearch current={code} /></div>;
   const a = d.analysis, u = d.unit;
   const lv = (a?.levels ?? {}) as { support?: number; resistance?: number; invalid?: number };
 
@@ -71,6 +73,7 @@ export default function SymbolPage({ params }: { params: Promise<{ code: string 
           </span>
         </div>
         <div className="row">
+          <SymbolSearch current={d.sym} />
           {a && <span className="mono" style={{ fontSize: 18 }}>{price(a.c, u)}{" "}
             <span className={a.chg >= 0 ? "up" : "down"}>{pct(a.chg, 2)}</span></span>}
           <label className="muted">Ngày <input id="at" type="date" value={at ?? a?.d ?? ""} max={new Date().toISOString().slice(0, 10)}
