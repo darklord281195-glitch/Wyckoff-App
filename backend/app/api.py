@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .db import connect
-from .core.data import get_ohlcv
+from .core.data import get_ohlcv, fetch_remote
 from .core.wyckoff import analyse, trim, ANALYSIS_DAYS
 from .core.market import traffic_light
 from .core.positions import simulate
@@ -198,6 +198,15 @@ def symbol(code: str, at: dt.date | None = None, start: dt.date | None = Query(N
                 sector=info.get("icb_name"), unit="pt" if len(code) > 3 else "k",    # VNM, VND... là cổ phiếu
                 ohlcv=full,
                 analysis=res, signals=signals(120, code, at), at=at, start=start, foreign=fx, foreign_error=fx_err, plan_stats=dict(st) if st else None, fundamentals=fundamentals, in_watchlist=code in watchlist(conn))
+
+
+@app.get("/api/symbols/{code}/hourly")
+def hourly(code: str):
+    """Nến 1 giờ ~1 năm gần nhất, tải thẳng từ VNDirect mỗi lần xem (không lưu DB)."""
+    try:
+        return fetch_remote(code.upper(), 365, retries=2, res="60")
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
 
 
 class WatchItem(BaseModel):

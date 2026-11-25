@@ -4,13 +4,14 @@ API không chính thức: muốn đổi nguồn chỉ cần thay fetch_remote().
 """
 import json, time, datetime as dt, urllib.request
 
-API = "https://dchart-api.vndirect.com.vn/dchart/history?resolution=D&symbol={s}&from={f}&to={t}"
+API = "https://dchart-api.vndirect.com.vn/dchart/history?resolution={r}&symbol={s}&from={f}&to={t}"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
 
 
-def fetch_remote(sym: str, days: int, retries: int = 3) -> list[dict]:
+def fetch_remote(sym: str, days: int, retries: int = 3, res: str = "D") -> list[dict]:
+    """res="D": nến ngày, d = 'YYYY-MM-DD'; res="60": nến 1 giờ, d = 'YYYY-MM-DDTHH:MM' giờ VN."""
     to = int(time.time()); fr = to - days * 86400
-    url = API.format(s=sym, f=fr, t=to)
+    url = API.format(s=sym, f=fr, t=to, r=res)
     last_err = None
     for k in range(retries):
         try:
@@ -18,7 +19,7 @@ def fetch_remote(sym: str, days: int, retries: int = 3) -> list[dict]:
             j = json.load(urllib.request.urlopen(req, timeout=30))
             if j.get("s") != "ok" or not j.get("t"):
                 return []
-            day = lambda t: dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime("%Y-%m-%d")
+            day = (lambda t: dt.datetime.fromtimestamp(t, dt.timezone.utc).strftime("%Y-%m-%d")) if res == "D" else                   (lambda t: dt.datetime.fromtimestamp(t, dt.timezone(dt.timedelta(hours=7))).strftime("%Y-%m-%dT%H:%M"))
             return [dict(d=day(t), o=o, h=h, l=l, c=c, v=v / 1e6)
                     for t, o, h, l, c, v in zip(j["t"], j["o"], j["h"], j["l"], j["c"], j["v"])]
         except Exception as e:                                   # mạng chập chờn: thử lại

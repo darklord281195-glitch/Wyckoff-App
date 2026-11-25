@@ -3,24 +3,30 @@ import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import {
   createChart, ColorType, CrosshairMode, LineStyle, IChartApi, SeriesMarker, Time,
 } from "lightweight-charts";
-import { num, pct, fullDate, price as fmtPrice, type Analysis, type Ohlcv, type Plan, type PlanStats } from "@/lib/api";
+import { api, num, pct, fullDate, price as fmtPrice, type Analysis, type Ohlcv, type Plan, type PlanStats } from "@/lib/api";
 
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-type Tf = "D" | "W";
-const TF_LABEL: Record<Tf, string> = { D: "Ngày", W: "Tuần" };
-/** khóa nến của ngày d trên từng khung (tuần = ngày thứ 2 của tuần) */
-const KEY: Record<Tf, (d: string) => string> = {
-  D: (d) => d,
-  W: (d) => {
-    const t = new Date(d + "T00:00:00Z");
-    t.setUTCDate(t.getUTCDate() - (t.getUTCDay() + 6) % 7);
-    return t.toISOString().slice(0, 10);
-  },
+type Tf = "H" | "D" | "3D" | "W";
+const TF_LABEL: Record<Tf, string> = { H: "1 giờ", D: "Ngày", "3D": "3 ngày", W: "Tuần" };
+/** tuần chứa ngày d = ngày thứ 2 của tuần */
+const weekOf = (d: string) => {
+  const t = new Date(d + "T00:00:00Z");
+  t.setUTCDate(t.getUTCDate() - (t.getUTCDay() + 6) % 7);
+  return t.toISOString().slice(0, 10);
 };
-/** số nến hiện sẵn khi mở khung (≈1 năm / 3 năm); kéo/zoom để xem thêm */
-const SHOW: Record<Tf, number> = { D: 260, W: 156 };
+/** khóa nến của ngày d trên khung 3 ngày (khối 3 phiên liên tiếp tính từ phiên đầu) hoặc 1 giờ (nến đầu của ngày) */
+function keyMap(days: string[], bars: string[]) {
+  const m = new Map<string, string>();
+  bars.forEach((b) => { if (!m.has(b.slice(0, 10))) m.set(b.slice(0, 10), b); });
+  days.forEach((d, i) => { if (!m.has(d)) m.set(d, days[i - (i % 3)]); });
+  return (d: string) => m.get(d) ?? d;
+}
+/** số nến hiện sẵn khi mở khung (1 giờ ≈ 2 tháng, ngày ≈ 1 năm, 3 ngày ≈ 1,5 năm, tuần ≈ 3 năm); kéo/zoom để xem thêm */
+const SHOW: Record<Tf, number> = { H: 220, D: 260, "3D": 125, W: 156 };
+/** thời gian cho lightweight-charts: ngày giữ chuỗi, nến giờ đổi sang số giây (giờ VN hiển thị như UTC) */
+const T = (d: string) => (d.length > 10 ? Date.parse(d + ":00Z") / 1000 : d) as Time;
 
-/** gộp nến ngày thành nến tuần */
+/** gộp nến ngày thành nến tuần / 3 ngày */
 function group(data: Ohlcv[], key: (d: string) => string): Ohlcv[] {
   const out: Ohlcv[] = [];
   for (const r of data) {
@@ -77,12 +83,16 @@ export function ichimoku(rows: Ohlcv[]) {
   const chikou = rows.map((_, i) => (i + ICHI_SHIFT < n ? rows[i + ICHI_SHIFT].c : null));
   return { tenkan, kijun, spanA, spanB, chikou };
 }
-/** k ngày giao dịch (thứ 2–6) hoặc k tuần sau ngày d */
+/** k nến tương lai sau nến d: giờ giao dịch (9,10,11,13,14h), ngày thứ 2–6, khối 3 ngày, hoặc tuần */
 function futureDays(d: string, k: number, tf: Tf) {
-  const out: string[] = [], t = new Date(d + "T00:00:00Z");
+  const out: string[] = [], t = new Date((d.length > 10 ? d : d + "T00:00") + ":00Z");
+  let s = 0;
   while (out.length < k) {
-    t.setUTCDate(t.getUTCDate() + (tf === "W" ? 7 : 1));
-    if (tf === "W" || (t.getUTCDay() !== 0 && t.getUTCDay() !== 6)) out.push(t.toISOString().slice(0, 10));
+    if (tf === "H") t.setUTCHours(t.getUTCHours() + 1);
+    else t.setUTCDate(t.getUTCDate() + (tf === "W" ? 7 : 1));
+    if (tf !== "W" && (t.getUTCDay() === 0 || t.getUTCDay() === 6)) continue;
+    if (tf === "H") { if ([9, 10, 11, 13, 14].includes(t.getUTCHours())) out.push(t.toISOString().slice(0, 16)); }
+    else if (tf !== "3D" || ++s % 3 === 0) out.push(t.toISOString().slice(0, 10));
   }
   return out;
 }
@@ -105,7 +115,9 @@ function scenario(p: Plan | null | undefined, c: number): { ok: Node[]; fail: No
 }
 
 /** Nến ngày/tuần + KL + vùng SC–AR + mốc Wyckoff. Phân tích luôn theo khung ngày; khung tuần để xem bối cảnh. */
-export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats }: {
+export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, stats }: {
+  /** mã: có thì cho xem khung 1 giờ (tải riêng từ VNDirect) */
+  sym?: string;
   data: Ohlcv[]; analysis: Analysis | null; unit: "pt" | "k";
   /** kết quả backtest của loại kế hoạch hiện tại, hiện cạnh kịch bản */
   stats?: PlanStats | null;
@@ -117,7 +129,24 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
   const box = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const [tf, setTf] = useState<Tf>("D");
-  const rowsOf = useMemo(() => ({ D: data, W: group(data, KEY.W) }), [data]);
+  const [hourly, setHourly] = useState<Ohlcv[] | null>(null);
+  const [hErr, setHErr] = useState<string | null>(null);
+  useEffect(() => { setHourly(null); setHErr(null); }, [sym]);
+  useEffect(() => {
+    if (tf !== "H" || !sym || hourly) return;
+    api<Ohlcv[]>(`/api/symbols/${sym}/hourly`).then(setHourly).catch((e) => setHErr(String(e)));
+  }, [tf, sym, hourly]);
+  /** nến + khóa ngày -> nến của từng khung */
+  const view = useMemo(() => {
+    const k3 = keyMap(data.map((r) => r.d), []);
+    const H = hourly ?? [];
+    return {
+      D: { rows: data, k: (d: string) => d },
+      "3D": { rows: group(data, k3), k: k3 },
+      W: { rows: group(data, weekOf), k: weekOf },
+      H: { rows: H, k: keyMap([], H.map((r) => r.d)) },
+    } as Record<Tf, { rows: Ohlcv[]; k: (d: string) => string }>;
+  }, [data, hourly]);
   const [picking, setPicking] = useState(false);              // đang ở chế độ kéo chọn khoảng
   const [drag, setDrag] = useState<{ x0: number; x1: number } | null>(null);
   const [tip, setTip] = useState<{ x: number; y: number; label: string; price: number } | null>(null);   // hover điểm kịch bản
@@ -143,8 +172,7 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
   const sc = useMemo(() => (tf === "D" && unit === "k" && analysis ? scenario(analysis.plan, analysis.c) : null), [tf, unit, analysis]);
 
   useEffect(() => {
-    const rows = rowsOf[tf];
-    const k = KEY[tf];                                 // khóa thời gian của mốc sự kiện trên khung đang xem
+    const { rows, k } = view[tf];                     // k: khóa thời gian của mốc sự kiện trên khung đang xem
     if (!box.current || rows.length === 0) return;
     const muted = css("--muted"), grid = css("--grid"), accent = css("--accent");
     const up = css("--up"), down = css("--down"), surface = css("--surface");
@@ -154,7 +182,7 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
       grid: { vertLines: { color: grid }, horzLines: { color: grid } },
       crosshair: { mode: CrosshairMode.Normal },
       rightPriceScale: { borderColor: grid, scaleMargins: { top: 0.08, bottom: 0.28 }, minimumWidth: 70 },   // = biểu đồ RSI/MACD để trục thời gian thẳng hàng
-      timeScale: { borderColor: grid },
+      timeScale: { borderColor: grid, timeVisible: tf === "H" },
       localization: {
         locale: "vi-VN",
         priceFormatter: (p: number) => unit === "pt"
@@ -166,7 +194,7 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
     if (showIchi) {   // vẽ đầu tiên để nến, KL, vùng chọn nằm trên mây
       const ic = ichimoku(rows), n = rows.length;
       const fut = futureDays(rows[n - 1].d, ICHI_SHIFT, tf);
-      const t = (i: number) => (i < n ? rows[i].d : fut[i - n]) as Time;      // chỉ số nến -> ngày (gồm 26 nến tương lai)
+      const t = (i: number) => T(i < n ? rows[i].d : fut[i - n]);      // chỉ số nến -> ngày (gồm 26 nến tương lai)
       const base = { priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false };
       // mây = vùng tô từ max(A,B) xuống, rồi vùng màu nền từ min(A,B) xuống che phần dưới
       // shortcut: mặt nạ màu nền che lưới dọc phía dưới mây; lightweight-charts 4 không có kiểu tô giữa hai đường
@@ -190,7 +218,7 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
       line(ic.chikou, "#94a3b8", "Chikou");
     }
     if (sel) {   // tô nền khoảng đang phân tích (vẽ trước để nằm dưới nến)
-      const a = k(sel.from), b = k(sel.to);
+      const a = k(sel.from);
       // vùng (area) giá trị 1 trên thang 0–1 riêng: phủ kín từ trên xuống dưới, không bị sọc như cột histogram
       const band = chart.addAreaSeries({
         priceScaleId: "sel", lastValueVisible: false, priceLineVisible: false, crosshairMarkerVisible: false,
@@ -198,12 +226,12 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
         autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 1 } }),
       });
       chart.priceScale("sel").applyOptions({ scaleMargins: { top: 0, bottom: 0 }, visible: false });
-      band.setData(rows.filter((r) => r.d >= a && r.d <= b).map((r) => ({ time: r.d as Time, value: 1 })));
+      band.setData(rows.filter((r) => r.d >= a && r.d.slice(0, 10) <= sel.to).map((r) => ({ time: T(r.d), value: 1 })));
     }
     const candles = chart.addCandlestickSeries({
       upColor: up, downColor: down, borderUpColor: up, borderDownColor: down, wickUpColor: up, wickDownColor: down,
     });
-    candles.setData(rows.map((r) => ({ time: r.d as Time, open: r.o, high: r.h, low: r.l, close: r.c })));
+    candles.setData(rows.map((r) => ({ time: T(r.d), open: r.o, high: r.h, low: r.l, close: r.c })));
 
     const vol = chart.addHistogramSeries({
       priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false,
@@ -212,14 +240,14 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
     chart.priceScale("vol").applyOptions({ scaleMargins: { top: 0.78, bottom: 0 } });
     const evDays = new Set(analysis?.events.map((e) => k(e.d)));
     vol.setData(rows.map((r) => ({
-      time: r.d as Time, value: r.v,
+      time: T(r.d), value: r.v,
       color: evDays.has(r.d) ? accent : r.c >= r.o ? up + "66" : down + "66",
     })));
     // đường KL trung bình 20 nến: cột vượt đường = KL trên TB20
     let sum = 0;
     const ma20 = rows.flatMap((r, i) => {
       sum += r.v - (i >= 20 ? rows[i - 20].v : 0);
-      return i >= 19 ? [{ time: r.d as Time, value: sum / 20 }] : [];
+      return i >= 19 ? [{ time: T(r.d), value: sum / 20 }] : [];
     });
     chart.addLineSeries({
       priceScaleId: "vol", color: "#f59e0b", lineWidth: 2,
@@ -229,7 +257,7 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
     if (analysis?.range) {
       const rg = analysis.range;
       // vùng tích lũy: tô nền SC–AR từ ngày SC tới phiên phân tích, đường trần/đáy đứt nét đậm
-      const days = rows.filter((r) => r.d >= k(rg.start) && r.d <= k(analysis.d)).map((r) => r.d as Time);
+      const days = rows.filter((r) => r.d >= k(rg.start) && r.d.slice(0, 10) <= analysis.d).map((r) => T(r.d));
       const line = { lineWidth: 2 as const, lineStyle: LineStyle.Dashed, priceLineVisible: false, crosshairMarkerVisible: false };
       chart.addBaselineSeries({
         ...line, baseValue: { type: "price", price: rg.sup }, title: "Trần vùng (AR)",
@@ -249,11 +277,11 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
         }));
       }
     }
-    const first = rows[0].d;
+    const has = new Set(rows.map((r) => r.d));          // chỉ gắn mốc vào nến có trên khung (khung 1 giờ chỉ có ~1 năm)
     const markers: SeriesMarker<Time>[] = (analysis?.events ?? [])
-      .filter((e) => k(e.d) >= first)
+      .filter((e) => has.has(k(e.d)))
       .map((e) => ({
-        time: k(e.d) as Time,
+        time: T(k(e.d)),
         position: e.pos === "high" ? "aboveBar" : "belowBar",
         color: e.k === "Đỉnh hạ" ? down : accent, shape: e.pos === "high" ? "arrowDown" : "arrowUp",
         // KL/TB20 là của phiên ngày, chỉ ghi trên khung ngày
@@ -261,9 +289,9 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
       }));
     // mốc phân phối (màu đỏ); bỏ AR/ST để không lẫn với mốc tích lũy cùng tên
     (analysis?.distrib?.events ?? [])
-      .filter((e) => k(e.d) >= first && ["BC", "UTAD", "SOW", "LPSY"].includes(e.k))
+      .filter((e) => has.has(k(e.d)) && ["BC", "UTAD", "SOW", "LPSY"].includes(e.k))
       .forEach((e) => markers.push({
-        time: k(e.d) as Time, position: e.pos === "high" ? "aboveBar" : "belowBar",
+        time: T(k(e.d)), position: e.pos === "high" ? "aboveBar" : "belowBar",
         color: down, shape: e.pos === "high" ? "arrowDown" : "arrowUp", text: e.k,
       }));
     candles.setMarkers(markers.sort((a, b) => (a.time < b.time ? -1 : 1)));
@@ -314,7 +342,7 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
     // đang xem một khoảng/ngày: căn khoảng đó vào giữa, chừa hai bên để thấy trước và sau
     const i0 = sel ? rows.findIndex((r) => r.d >= k(sel.from)) : -1;
     if (sel && i0 >= 0) {
-      const i1 = rows.findLastIndex((r) => r.d <= k(sel.to));
+      const i1 = rows.findLastIndex((r) => r.d.slice(0, 10) <= sel.to);
       const pad = Math.max(30, Math.round((i1 - i0) * 0.6));
       chart.timeScale().setVisibleLogicalRange({ from: i0 - pad, to: Math.max(i1 + pad, scEnd + 3) });
     } else if (SHOW[tf] && rows.length > SHOW[tf]) {
@@ -335,7 +363,7 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
         handleScroll: false, handleScale: false,
       });
       const ind = indicators(rows.map((r) => r.c));
-      const pts = (xs: (number | null)[]) => rows.map((r, i) => (xs[i] == null ? { time: r.d as Time } : { time: r.d as Time, value: xs[i] as number }));
+      const pts = (xs: (number | null)[]) => rows.map((r, i) => (xs[i] == null ? { time: T(r.d) } : { time: T(r.d), value: xs[i] as number }));
       const base = { priceLineVisible: false, crosshairMarkerVisible: false, lineWidth: 1 as const };
       const rsi = sub.addLineSeries({ ...base, priceScaleId: "rsi", color: "#8b5cf6", lineWidth: 2, title: "RSI 14",
         priceFormat: { type: "price", precision: 0, minMove: 1 },
@@ -345,8 +373,8 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
       sub.priceScale("rsi").applyOptions({ scaleMargins: { top: 0.04, bottom: 0.56 } });
       const mfmt = { type: "price" as const, precision: unit === "pt" ? 1 : 2, minMove: 0.01 };
       sub.addHistogramSeries({ ...base, priceScaleId: "macd", lastValueVisible: false, priceFormat: mfmt })
-        .setData(rows.map((r, i) => (ind.hist[i] == null ? { time: r.d as Time }
-          : { time: r.d as Time, value: ind.hist[i] as number, color: (ind.hist[i] as number) >= 0 ? up + "88" : down + "88" })));
+        .setData(rows.map((r, i) => (ind.hist[i] == null ? { time: T(r.d) }
+          : { time: T(r.d), value: ind.hist[i] as number, color: (ind.hist[i] as number) >= 0 ? up + "88" : down + "88" })));
       sub.addLineSeries({ ...base, priceScaleId: "macd", color: "#2563eb", title: "MACD", priceFormat: mfmt }).setData(pts(ind.macd));
       sub.addLineSeries({ ...base, priceScaleId: "macd", color: "#f59e0b", title: "Tín hiệu", priceFormat: mfmt }).setData(pts(ind.signal));
       sub.priceScale("macd").applyOptions({ scaleMargins: { top: 0.5, bottom: 0.02 } });
@@ -355,7 +383,7 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
       chart.timeScale().subscribeVisibleLogicalRangeChange((r) => { if (r) ts.setVisibleLogicalRange(r); });
     }
     return () => { sub?.remove(); chart.remove(); chartRef.current = null; setTip(null); };
-  }, [rowsOf, tf, analysis, unit, sel?.from, sel?.to, sc, showSc, showInd, showIchi]);
+  }, [view, tf, analysis, unit, sel?.from, sel?.to, sc, showSc, showInd, showIchi]);
 
   // chế độ chọn khoảng: tắt kéo/zoom của biểu đồ để chuột dùng cho việc chọn
   useEffect(() => {
@@ -364,11 +392,11 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
 
   /** vị trí x (px trong khung) -> ngày giao dịch; khung tuần: đầu khoảng = phiên đầu tuần, cuối = phiên cuối tuần */
   const xToDay = (x: number, end: boolean) => {
-    const rows = rowsOf[tf], lg = chartRef.current?.timeScale().coordinateToLogical(x);
+    const { rows, k } = view[tf], lg = chartRef.current?.timeScale().coordinateToLogical(x);
     if (lg == null || !rows.length) return null;
     const w = rows[Math.min(rows.length - 1, Math.max(0, Math.round(lg)))].d;
-    if (tf === "D") return w;
-    const inWeek = data.filter((r) => KEY.W(r.d) === w);
+    if (tf === "D" || tf === "H") return w.slice(0, 10);
+    const inWeek = data.filter((r) => k(r.d) === w);
     return (end ? inWeek[inWeek.length - 1] : inWeek[0])?.d ?? w;
   };
   const relX = (e: PointerEvent) => e.clientX - e.currentTarget.getBoundingClientRect().left;
@@ -384,10 +412,12 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
     <>
       <div className="row" style={{ marginBottom: 8 }}>
         <div className="tabs">
-          {(Object.keys(TF_LABEL) as Tf[]).map((t) => (
+          {(Object.keys(TF_LABEL) as Tf[]).filter((t) => t !== "H" || sym).map((t) => (
             <button key={t} className={tf === t ? "on" : ""} onClick={() => setTf(t)}>{TF_LABEL[t]}</button>
           ))}
         </div>
+        {tf === "H" && !hourly && <span className="muted" style={{ fontSize: 12.5 }}>
+          {hErr ? `Không tải được nến 1 giờ: ${hErr}` : "Đang tải nến 1 giờ…"}</span>}
         {onRange && <button className={`btn${picking ? " primary" : ""}`} onClick={() => { setPicking(!picking); setDrag(null); }}
           title="Kéo chuột qua một đoạn để phân tích Wyckoff trong đoạn đó">
           {picking ? "Kéo chuột chọn khoảng… (bấm để hủy)" : "↔ Chọn khoảng phân tích"}</button>}
@@ -401,7 +431,8 @@ export default function WyckoffChart({ data, analysis, unit, sel, onRange, stats
           title="RSI 14 (tím, vạch 70/30) và MACD 12-26-9 (xanh = MACD, cam = tín hiệu, cột = chênh lệch)">
           {showInd ? "✓ RSI/MACD" : "RSI/MACD"}</button>
         {tf !== "D" && <span className="muted" style={{ fontSize: 12.5 }}>
-          Mốc Wyckoff tính theo ngày, gắn vào {TF_LABEL[tf].toLowerCase()} chứa ngày đó · kéo/cuộn để xem thêm</span>}
+          Mốc Wyckoff tính theo ngày, gắn vào {tf === "H" ? "nến 9h của ngày đó (nến 1 giờ chỉ có ~1 năm gần nhất)"
+            : `nến ${TF_LABEL[tf].toLowerCase()} chứa ngày đó`} · kéo/cuộn để xem thêm</span>}
       </div>
       <div style={{ position: "relative" }}>
         <div ref={box} style={{ width: "100%", height: 460 }} />
