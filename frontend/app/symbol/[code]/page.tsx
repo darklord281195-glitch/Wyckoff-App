@@ -94,7 +94,7 @@ export default function SymbolPage({ params }: { params: Promise<{ code: string 
 
       {u === "k" && <ForeignCard rows={d.foreign ?? []} error={d.foreign_error} />}
 
-      {a?.plan && u === "k" && <PlanCard sym={d.sym} plan={a.plan} c={a.c} unit={u} readOnly={!!at} />}
+      {a?.plan && u === "k" && <PlanCard sym={d.sym} plan={a.plan} c={a.c} unit={u} readOnly={!!at} odds={d.scenario_stats} />}
 
       {a && (
         <div className="grid2">

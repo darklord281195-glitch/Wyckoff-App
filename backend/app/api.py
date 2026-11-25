@@ -192,12 +192,18 @@ def symbol(code: str, at: dt.date | None = None, start: dt.date | None = Query(N
     fundamentals = _fundamentals(code, at) if len(code) == 3 else None
     kind = ((res or {}).get("plan") or {}).get("kind")
     st = kind and conn.execute("SELECT * FROM backtest_stats WHERE plan=?", (kind.split(" (")[0],)).fetchone()
+    try:
+        light = market(at)["light"]          # đèn của phiên đang xem (phiên quét gần nhất nếu không có `at`)
+    except HTTPException:
+        light = None
+    sc = [dict(x) for x in conn.execute("SELECT * FROM scenario_stats WHERE plan=?", (kind.split(" (")[0],))] if kind else []
     lst = listing(conn)
     info = lst.get(code, {})
     return dict(sym=code, groups=group_of(code, lst), name=info.get("name"), floor=info.get("floor"),
                 sector=info.get("icb_name"), unit="pt" if len(code) > 3 else "k",    # VNM, VND... là cổ phiếu
                 ohlcv=full,
-                analysis=res, signals=signals(120, code, at), at=at, start=start, foreign=fx, foreign_error=fx_err, plan_stats=dict(st) if st else None, fundamentals=fundamentals, in_watchlist=code in watchlist(conn))
+                analysis=res, signals=signals(120, code, at), at=at, start=start, foreign=fx, foreign_error=fx_err, plan_stats=dict(st) if st else None,
+                scenario_stats=dict(light=light, rows=sc), fundamentals=fundamentals, in_watchlist=code in watchlist(conn))
 
 
 @app.get("/api/symbols/{code}/hourly")

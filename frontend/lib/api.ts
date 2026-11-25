@@ -105,8 +105,13 @@ export type SymbolData = {
   start: string | null; // đầu khoảng phân tích tự chọn (null = dò mặc định 190 phiên)
   foreign: Foreign[]; foreign_error: string | null;
   plan_stats: PlanStats | null;
+  /** tỷ lệ kịch bản lịch sử của loại kế hoạch hiện tại theo đèn ('*' = mọi đèn); light = đèn phiên đang xem */
+  scenario_stats?: { light: string | null; rows: ScenarioStat[] };
   fundamentals: Fundamentals | null;
 };
+/** up/flat/down: % số phiên mà trong `horizon` phiên sau đó giá chạm T1 trước / không chạm gì / đóng cửa dưới cắt lỗ trước */
+export type ScenarioStat = { plan: string; light: string; n: number; up: number; flat: number; down: number;
+  up_days: number; down_days: number; horizon: number; period: string; updated: string };
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(`${API}${path}`, { cache: "no-store", ...init });

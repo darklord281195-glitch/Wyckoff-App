@@ -127,7 +127,17 @@ def make_plan(R, r: dict, ix: dict, floor: str | None = None) -> dict | None:
                 time_stop=TIME_STOP, targets=[], rr=None, risk_pct=None, ready=readiness(R, r, ix), notes=[])
 
     recent_test = [e for e in r["events"] if e["k"] in ("Spring", "ST") and e["d"] >= R[max(0, n - 15)]["d"]]
-    if tag in ("D-LPS", "D-LPS?"):
+    fb = failed_breakout(R, res)
+    if fb:
+        fb = max(fb, res * 0.94)          # như LPS: không sâu hơn trần cũ −6%
+    if fb and tag not in ("D-LPS", "D-LPS?", "D-SOS", "E?", "dưới hỗ trợ") and c >= fb * 0.99:
+        # vượt trần rồi đóng cửa lại dưới trần: không chờ phá trần lần nữa, chờ LPS mới quanh đáy trước cú vượt
+        plan.update(kind="LPS mới (vượt trần hỏng)", entry_lo=fb, entry_hi=fb * 1.015,
+                    trigger=f"Vượt trần {price(res)} rồi đóng cửa lại dưới trần: cung ở trần còn. Không mua đuổi; "
+                            f"chờ giá lùi về đáy trước cú vượt ({price(fb)}), giữ đáy ít nhất {LPS_HOLD} phiên với KL thấp rồi quay đầu.",
+                    stop=fb * 0.99,
+                    stop_reason="Thủng đáy trước cú vượt trần: lần vượt là phá vỡ giả, quay lại đi ngang trong vùng")
+    elif tag in ("D-LPS", "D-LPS?"):
         # vùng LPS: từ đáy LPS (không thấp hơn trần cũ −6%) tới trần cũ +3%
         lo = max(min(lv.get("support", res), res * 0.97), res * 0.94); hi = res * 1.03
         plan.update(kind="LPS", entry_lo=lo, entry_hi=hi,
@@ -177,7 +187,11 @@ def make_plan(R, r: dict, ix: dict, floor: str | None = None) -> dict | None:
     above = ref * 1.02
     res_cands = [x for x in (overhead(R, above, n), lv.get("resistance")) if x and x > above]
     targets = []
-    if res_cands:
+    if fb and plan["kind"].startswith("LPS mới"):   # T1 = đỉnh cú vượt hỏng, nơi cung vừa xuất hiện
+        top = max(x["h"] for x in R[-6:])
+        targets.append(dict(k="", price=top, basis="Đỉnh cú vượt trần hỏng – cung vừa xuất hiện ở đây", ce=False))
+        above = max(above, top * 0.999)
+    elif res_cands:
         targets.append(dict(k="", price=min(res_cands), basis="Kháng cự gần (đỉnh cũ) – chốt lời một phần", ce=False))
     targets.append(dict(k="", price=ce["conservative"], ce=True,
                         basis=f"Nhân–Quả thận trọng: {ce['cols']} cột P&F × ô {num(ce['box'], 2)} × 3 cộng từ đáy"))
@@ -225,10 +239,22 @@ def selloff(R, look: int = 3) -> str | None:
     return None
 
 
+def failed_breakout(R, res: float, look: int = 5, base: int = 7) -> float | None:
+    """Vượt trần hỏng: trong `look` phiên gần nhất có phiên đóng cửa trên trần, nay đóng cửa lại dưới trần.
+    Trả về đáy thấp nhất `base` phiên trước phiên vượt đầu tiên (đáy LPS cũ), hoặc None."""
+    n = len(R)
+    if R[-1]["c"] >= res:
+        return None
+    above = [i for i in range(max(base, n - look), n - 1) if R[i]["c"] > res]
+    if not above:
+        return None
+    return min(x["l"] for x in R[above[0] - base:above[0]])
+
+
 def _scenario(plan: dict, R, res: float):
     """Thêm vào kế hoạch: ngưỡng KL bằng số (triệu cp), các bước mua chia 1/3, điều kiện hủy và cảnh báo phiên bán mạnh."""
     kind = plan["kind"]
-    if not plan["entry_lo"] or kind not in ("LPS", "Backup", "Phá trần (SOS)", "Spring/Test"):
+    if not plan["entry_lo"] or kind not in ("LPS", "LPS mới (vượt trần hỏng)", "Backup", "Phá trần (SOS)", "Spring/Test"):
         plan.update(steps=[], cancel="", selloff=None)
         return
     v20 = _mean([x["v"] for x in R[-21:-1]])

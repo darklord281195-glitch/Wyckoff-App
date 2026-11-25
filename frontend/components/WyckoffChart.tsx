@@ -149,6 +149,7 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
   }, [data, hourly]);
   const [picking, setPicking] = useState(false);              // đang ở chế độ kéo chọn khoảng
   const [drag, setDrag] = useState<{ x0: number; x1: number } | null>(null);
+  const [vtip, setVtip] = useState<{ x: number; y: number; d: string; v: number; vx: number | null; chg: number | null } | null>(null);   // hover cột KL
   const [tip, setTip] = useState<{ x: number; y: number; label: string; price: number } | null>(null);   // hover điểm kịch bản
   const [showSc, setShowSc] = useState(true);                 // vẽ kịch bản Wyckoff
   useEffect(() => { try { if (localStorage.getItem(SC_KEY) === "0") setShowSc(false); } catch { /* không có storage */ } }, []);
@@ -253,6 +254,16 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
       priceScaleId: "vol", color: "#f59e0b", lineWidth: 2,
       priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
     }).setData(ma20);
+    // hover vào cột KL: hiện KL phiên đó, so với TB20 và % giá
+    const at = new Map(rows.map((r, i) => [String(T(r.d)), i]));
+    const avg = new Map(ma20.map((m) => [String(m.time), m.value]));
+    chart.subscribeCrosshairMove((p) => {
+      const i = p.time != null && p.point ? at.get(String(p.time)) : undefined;
+      const top = i != null ? vol.priceToCoordinate(rows[i].v) : null, base = vol.priceToCoordinate(0);
+      if (i == null || top == null || base == null || p.point!.y < top - 4 || p.point!.y > base + 2) return setVtip(null);
+      const r = rows[i], a = avg.get(String(T(r.d)));
+      setVtip({ x: p.point!.x, y: top, d: r.d, v: r.v, vx: a ? r.v / a : null, chg: i > 0 ? (r.c / rows[i - 1].c - 1) * 100 : null });
+    });
 
     if (analysis?.range) {
       const rg = analysis.range;
@@ -382,7 +393,7 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
       if (r0) ts.setVisibleLogicalRange(r0);
       chart.timeScale().subscribeVisibleLogicalRangeChange((r) => { if (r) ts.setVisibleLogicalRange(r); });
     }
-    return () => { sub?.remove(); chart.remove(); chartRef.current = null; setTip(null); };
+    return () => { sub?.remove(); chart.remove(); chartRef.current = null; setTip(null); setVtip(null); };
   }, [view, tf, analysis, unit, sel?.from, sel?.to, sc, showSc, showInd, showIchi]);
 
   // chế độ chọn khoảng: tắt kéo/zoom của biểu đồ để chuột dùng cho việc chọn
@@ -444,6 +455,17 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
             <b>{tip.label}</b> {fmtPrice(tip.price, unit)}{" "}
             <b className={tip.price >= analysis.c ? "up" : "down"}>{pct((tip.price / analysis.c - 1) * 100, 1)}</b>
             <div className="muted">nếu mua ở {fmtPrice(analysis.c, unit)} (đóng cửa {fullDate(analysis.d)})</div>
+          </div>
+        )}
+        {vtip && (
+          <div className="card" style={{
+            position: "absolute", left: vtip.x + 12, top: Math.max(0, vtip.y - 60), zIndex: 5, pointerEvents: "none",
+            padding: "6px 10px", margin: 0, fontSize: 12.5, whiteSpace: "nowrap", boxShadow: "0 2px 8px #0002",
+          }}>
+            <b>{vtip.d.length > 10 ? `${vtip.d.slice(11)} ${fullDate(vtip.d.slice(0, 10))}` : fullDate(vtip.d)}</b>
+            {vtip.chg != null && <> · <b className={vtip.chg >= 0 ? "up" : "down"}>{pct(vtip.chg, 2)}</b></>}
+            <div>KL <b>{num(vtip.v, 2)}</b>{unit === "pt" ? "" : " triệu cp"}
+              {vtip.vx != null && <span className="muted"> · x{num(vtip.vx, 1)} TB20</span>}</div>
           </div>
         )}
         {picking && (   // lớp phủ nhận thao tác kéo khi đang chọn khoảng

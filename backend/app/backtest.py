@@ -66,9 +66,25 @@ def _fill(R, i, p):
     return None, None, min(i + WAIT, len(R) - 1)
 
 
-def run_symbol(sym, R, IDX, start="0000", end="9999", orders=None, slip=SLIP, time_stop=TIME_STOP):
+HORIZON = 20                            # số phiên nhìn tới khi đếm kịch bản (bằng luật cắt lỗ thời gian)
+
+
+def outcome(R, i, stop, t1, h=HORIZON):
+    """Kịch bản xảy ra sau phiên i, tính từ giá đóng cửa phiên i:
+    ('up', số phiên) nếu giá chạm T1 trước, ('down', số phiên) nếu đóng cửa dưới cắt lỗ trước, ('flat', h) nếu
+    trong h phiên không có gì xảy ra; None nếu chưa đủ h phiên để biết. Cùng một phiên thì tính cắt lỗ trước (thận trọng)."""
+    for k in range(i + 1, min(i + 1 + h, len(R))):
+        if R[k]["c"] < stop:
+            return "down", k - i
+        if R[k]["h"] >= t1:
+            return "up", k - i
+    return ("flat", h) if i + h < len(R) else None
+
+
+def run_symbol(sym, R, IDX, start="0000", end="9999", orders=None, slip=SLIP, time_stop=TIME_STOP, samples=None):
     """Các lệnh backtest của một mã; mỗi lúc chỉ một lệnh (đang chờ khớp hoặc đang giữ).
-    R, IDX: OHLCV tăng dần, nên có đủ lịch sử trước `start` để phân tích. orders: Counter đếm lệnh đặt theo loại."""
+    R, IDX: OHLCV tăng dần, nên có đủ lịch sử trước `start` để phân tích. orders: Counter đếm lệnh đặt theo loại.
+    samples: list nhận kịch bản thực tế (outcome) của mọi phiên có kế hoạch, để tính tỷ lệ kịch bản theo loại kế hoạch."""
     D, DI = [r["d"] for r in R], [r["d"] for r in IDX]
     trades, prev, i = [], None, max(bisect.bisect_left(D, start), 119)
     while i < len(R) and D[i] <= end:
@@ -78,6 +94,12 @@ def run_symbol(sym, R, IDX, start="0000", end="9999", orders=None, slip=SLIP, ti
         r = analyse(_window(R, D, i), _window(IDX, DI, k) if k >= 0 else None)
         sigs = [x for x in sig.build(sym, r, prev, False) if x["kind"] in sig.BUY] if r else []
         prev, p = r, (r or {}).get("plan") or {}
+        # shortcut: phiên trong lúc đang giữ lệnh bị nhảy qua nên không có mẫu; đủ để ước lượng tỷ lệ, muốn đủ mẫu thì quét riêng
+        # chỉ lấy phiên có giá nằm giữa cắt lỗ và T1 (giá đã dưới cắt lỗ thì "kịch bản" không còn nghĩa)
+        if samples is not None and p.get("stop") and p.get("targets") and p["stop"] < R[i]["c"] < p["targets"][0]["price"]:
+            o = outcome(R, i, p["stop"], p["targets"][0]["price"])
+            if o:
+                samples.append(dict(plan=plan_group(dict(plan=p["kind"])), d=D[i], out=o[0], days=o[1]))
         if not sigs or not p.get("entry_hi") or not p.get("stop"):
             i += 1; continue
         x = min(sigs, key=lambda x: x["prio"])
@@ -198,9 +220,10 @@ def sector_medians(acc, min_n=3):
     return out
 
 
-def collect(conn, syms, start, end, slip=SLIP, time_stops=(TIME_STOP,), log=print):
+def collect(conn, syms, start, end, slip=SLIP, time_stops=(TIME_STOP,), log=print, samples=None):
     """({time_stop: [lệnh]}, Counter lệnh đặt, {ngày: đèn}): chạy backtest mọi mã; mỗi lệnh gắn đèn, khối ngoại 10 phiên và RS20 ngành lúc báo.
-    Nhiều time_stop thì chạy lại run_symbol cho từng giá trị (điểm vào giống nhau, chỉ khác luật thoát)."""
+    Nhiều time_stop thì chạy lại run_symbol cho từng giá trị (điểm vào giống nhau, chỉ khác luật thoát).
+    samples: list nhận mẫu kịch bản (xem run_symbol), được gắn đèn của ngày đó."""
     t0 = time.time()
     IDX = get_ohlcv(conn, INDEX, HISTORY + 400, refresh=False)
     idx_c = {r["d"]: r["c"] for r in IDX}
@@ -212,7 +235,7 @@ def collect(conn, syms, start, end, slip=SLIP, time_stops=(TIME_STOP,), log=prin
         add_breadth(R, up, tot)
         add_sector_rs(R, idx_c, (lst.get(s) or {}).get("icb"), sec)
         for j, ts in enumerate(time_stops):
-            out[ts] += run_symbol(s, R, IDX, start, end, orders if j == 0 else None, slip, ts)
+            out[ts] += run_symbol(s, R, IDX, start, end, orders if j == 0 else None, slip, ts, samples if j == 0 else None)
         if n % 50 == 0:
             log(f"  {n}/{len(syms)} mã · {len(out[time_stops[0]])} lệnh · {time.time() - t0:.0f} giây")
     light, med = lights(IDX, up, tot), sector_medians(sec)
@@ -221,7 +244,37 @@ def collect(conn, syms, start, end, slip=SLIP, time_stops=(TIME_STOP,), log=prin
             t["light"] = light.get(t["sig_d"], "?")
             t["fx10"] = net_sum(conn, t["sym"], t["sig_d"])
             t["sector_rs20"] = med.get(((lst.get(t["sym"]) or {}).get("icb"), t["sig_d"]))
+    for x in samples or []:
+        x["light"] = light.get(x["d"], "?")
     return out, orders, light
+
+
+def scenario_rows(samples):
+    """{(kế hoạch, đèn): tỷ lệ kịch bản}; đèn '*' = mọi đèn. up/flat/down là %, *_days là số phiên TB tới khi xảy ra."""
+    g = defaultdict(list)
+    for x in samples:
+        g[(x["plan"], "*")].append(x)
+        if x["light"] != "?":                      # ngày chưa đủ dữ liệu tính đèn: chỉ tính vào "mọi đèn"
+            g[(x["plan"], x["light"])].append(x)
+    out = {}
+    for k, xs in g.items():
+        n = len(xs)
+        pc = lambda o: round(100 * sum(x["out"] == o for x in xs) / n, 1)
+        days = lambda o: round(sum(x["days"] for x in xs if x["out"] == o) / max(1, sum(x["out"] == o for x in xs)), 1)
+        out[k] = dict(n=n, up=pc("up"), flat=pc("flat"), down=pc("down"), up_days=days("up"), down_days=days("down"))
+    return out
+
+
+def save_scenarios(conn, samples, period):
+    """Ghi tỷ lệ kịch bản theo (loại kế hoạch, đèn) vào scenario_stats để trang mã so sánh các kịch bản."""
+    rows = scenario_rows(samples)
+    conn.execute("DELETE FROM scenario_stats")
+    conn.executemany(
+        "INSERT INTO scenario_stats(plan,light,n,up,flat,down,up_days,down_days,horizon,period,updated) "
+        "VALUES (?,?,?,?,?,?,?,?,?,?,date('now','localtime'))",
+        [(p, l, s["n"], s["up"], s["flat"], s["down"], s["up_days"], s["down_days"], HORIZON, period)
+         for (p, l), s in rows.items()])
+    conn.commit()
 
 
 PERIODS = (("2019–23", lambda t: t["sig_d"] < "2024"), ("2024–26", lambda t: t["sig_d"] >= "2024"), ("Tất cả", lambda t: True))
@@ -343,7 +396,8 @@ def main():
         portfolio_bt.print_report(res)
         print("\nĐã lưu kết quả (trang Kết quả trên web).")
         return
-    out, orders, _ = collect(conn, syms, a.start, a.end, slip)
+    samples = []
+    out, orders, _ = collect(conn, syms, a.start, a.end, slip, samples=samples)
     trades = out[TIME_STOP]
     if not trades:
         print("Không có lệnh nào (đã chạy --backfill chưa?)"); return
@@ -374,6 +428,12 @@ def main():
     if not a.symbols:          # chỉ ghi thống kê cho trang mã khi chạy đủ mọi mã (mẫu nhỏ dễ sai lệch)
         save_stats(conn, trades, f"{first[:4]}–{last[:4]}", a.slip)
         print("Đã lưu thống kê theo loại kế hoạch (trang mã hiện cạnh kịch bản).")
+    print(f"\nTỷ lệ kịch bản {HORIZON} phiên sau mỗi phiên có kế hoạch ({len(samples)} mẫu): chạm T1 trước / đi ngang / thủng cắt lỗ trước")
+    for (p, l), s in sorted(scenario_rows(samples).items()):
+        print(f"  {p:<14}{l:<8}{s['n']:>7}  {s['up']:>5.1f}% / {s['flat']:>5.1f}% / {s['down']:>5.1f}%")
+    if not a.symbols and samples:
+        save_scenarios(conn, samples, f"{min(x['d'] for x in samples)[:4]}–{max(x['d'] for x in samples)[:4]}")
+        print("Đã lưu tỷ lệ kịch bản (trang mã hiện so sánh kịch bản).")
 
 
 if __name__ == "__main__":
