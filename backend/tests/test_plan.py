@@ -48,3 +48,23 @@ def test_plan_prices_on_tick():
 def test_tch_plan_is_backup_not_chase():
     p = analyse(load("TCH"), IDX)["plan"]
     assert p["kind"] == "Backup" and p["entry_hi"] < 13.9      # không mua đuổi ở giá hiện tại
+
+
+def test_plan_has_steps_and_cancel():
+    p = analyse(load("DPG"), IDX)["plan"]
+    assert len(p["steps"]) == 3 and "1/3" in p["steps"][0]
+    assert "triệu cp" in p["trigger"] and "triệu cp" in p["cancel"]
+    from app.fmt import price
+    assert price(p["stop"]) in p["cancel"]
+
+
+def test_selloff_detected_and_delays_lps():
+    from app.core.plan import selloff
+    R = load("DPG")
+    assert selloff(R) is None
+    x = R[-1]; v20 = sum(y["v"] for y in R[-20:]) / 20
+    R2 = R + [dict(d="2099-01-02", o=x["c"], h=x["c"] * 1.01, l=x["c"] * 0.95, c=x["c"] * 0.955, v=v20 * 1.4)]
+    assert selloff(R2) == "2099-01-02"
+    p = analyse(R2, IDX)["plan"]
+    if p and p.get("steps"):
+        assert p["selloff"] == "2099-01-02" and "bán mạnh" in p["steps"][0]

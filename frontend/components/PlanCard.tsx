@@ -70,6 +70,14 @@ export default function PlanCard({ sym, plan, c, unit, readOnly }: { sym: string
         <span className="muted">Điểm sẵn sàng <b style={{ color: "var(--fg)" }}>{plan.ready?.score ?? "–"}</b>/100</span>
       </div>
       <p style={{ margin: 0 }}>{plan.trigger}</p>
+      {(plan.steps?.length || plan.cancel) ? (
+        <div style={{ borderLeft: "3px solid var(--up)", paddingLeft: 12 }}>
+          <b>Kịch bản mua đẹp</b>
+          {plan.steps?.length ? <ol style={{ margin: "4px 0 0", paddingLeft: 20 }}>
+            {plan.steps.map((s, i) => <li key={i} className={i === 0 && plan.selloff ? "down" : ""}>{s}</li>)}</ol> : null}
+          {plan.cancel && <p style={{ margin: "6px 0 0" }}><b>Hủy kịch bản khi:</b> {plan.cancel}</p>}
+        </div>
+      ) : null}
 
       <div className="grid2">
         <div className="tbl">

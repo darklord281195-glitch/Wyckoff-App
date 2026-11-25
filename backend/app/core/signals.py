@@ -45,7 +45,8 @@ def build(sym: str, r: dict, prev: dict | None, in_watchlist: bool) -> list[dict
 
     if liquid and not r.get("weak_drop") and ready >= READY_BUY:
         # LPS chỉ báo khi giá đã giữ đáy LPS ít nhất LPS_HOLD phiên (đáy hôm nay là giá còn đang giảm)
-        if r["tag"] == "D-LPS" and (r.get("vx") or 9) < 1.0 and (r.get("lps_age") or 0) >= LPS_HOLD:
+        if r["tag"] == "D-LPS" and (r.get("vx") or 9) < 1.0 and (r.get("lps_age") or 0) >= LPS_HOLD \
+                and not p.get("selloff"):     # vừa bị bán mạnh: chưa phải LPS
             add("LPS", f"{sym} {_p(r['c'])} · {pt}")
         sos = r.get("sos")
         if sos and sos["d"] == today:
