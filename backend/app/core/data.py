@@ -27,6 +27,26 @@ def fetch_remote(sym: str, days: int, retries: int = 3, res: str = "D") -> list[
     raise RuntimeError(f"{sym}: lỗi tải dữ liệu ({last_err})")
 
 
+def add_atc(hourly: list[dict], daily: list[dict]) -> list[dict]:
+    """Nến 1 giờ của VNDirect không gồm phiên ATC (14:30–14:45): gộp phần còn thiếu vào nến cuối mỗi ngày
+    từ nến ngày (giá đóng cửa, cao/thấp, khối lượng). Bỏ qua ngày lệch giá mở cửa > 0,5% (giá ngày đã điều chỉnh
+    cổ tức/chia tách còn giá giờ thì không) để không trộn hai thang giá."""
+    by_day = {r["d"]: r for r in daily}
+    last, first, vol = {}, {}, {}
+    for i, r in enumerate(hourly):
+        day = r["d"][:10]
+        first.setdefault(day, r); last[day] = i; vol[day] = vol.get(day, 0) + r["v"]
+    out = [dict(r) for r in hourly]
+    for day, i in last.items():
+        D = by_day.get(day)
+        if not D or abs(D["o"] - first[day]["o"]) > 0.005 * max(D["o"], 1e-9):
+            continue
+        b = out[i]
+        b["c"] = D["c"]; b["h"] = max(b["h"], D["c"]); b["l"] = min(b["l"], D["c"])
+        b["v"] = round(b["v"] + max(D["v"] - vol[day], 0), 6)
+    return out
+
+
 def sync_many(conn, syms: list[str], days: int = 500, workers: int = 6, on_error=None, full: bool = False) -> list[str]:
     """Cập nhật dữ liệu nhiều mã song song: tải mạng trong thread pool, ghi DB ở thread chính.
     full=True: tải lại toàn bộ `days` ngày (vd lấy lịch sử dài cho backtest). Trả về danh sách mã bị lỗi."""

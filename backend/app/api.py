@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .db import connect
-from .core.data import get_ohlcv, fetch_remote
+from .core.data import get_ohlcv, fetch_remote, add_atc
 from .core.wyckoff import analyse, trim, ANALYSIS_DAYS
 from .core.market import traffic_light
 from .core.positions import simulate
@@ -215,9 +215,10 @@ def symbol(code: str, at: dt.date | None = None, start: dt.date | None = Query(N
 
 @app.get("/api/symbols/{code}/hourly")
 def hourly(code: str):
-    """Nến 1 giờ ~1 năm gần nhất, tải thẳng từ VNDirect mỗi lần xem (không lưu DB)."""
+    """Nến 1 giờ ~1 năm gần nhất, tải thẳng từ VNDirect mỗi lần xem (không lưu DB); nến cuối ngày gồm cả ATC."""
     try:
-        return fetch_remote(code.upper(), 365, retries=2, res="60")
+        sym = code.upper()
+        return add_atc(fetch_remote(sym, 365, retries=2, res="60"), fetch_remote(sym, 370, retries=2))
     except RuntimeError as e:
         raise HTTPException(502, str(e))
 

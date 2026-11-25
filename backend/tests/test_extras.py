@@ -145,3 +145,15 @@ def test_listing_api(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "conn", conn)
     got = TestClient(api.app).get("/api/listing").json()
     assert [x["sym"] for x in got] == ["VNINDEX", "ACB", "HPG"] and got[2]["name"] == "Hòa Phát"
+
+
+def test_hourly_add_atc():
+    from app.core.data import add_atc
+    H = [dict(d="2026-11-25T13:00", o=23.8, h=23.85, l=23.5, c=23.65, v=0.68),
+         dict(d="2026-11-25T14:00", o=23.65, h=23.8, l=22.8, c=23.45, v=1.19),
+         dict(d="2026-11-26T09:00", o=10.0, h=10.0, l=10.0, c=10.0, v=1.0)]
+    D = [dict(d="2026-11-25", o=23.8, h=24.4, l=22.8, c=23.0, v=2.0),
+         dict(d="2026-11-26", o=8.0, h=8.0, l=8.0, c=7.0, v=5.0)]          # giá ngày đã điều chỉnh: lệch -> bỏ qua
+    out = add_atc(H, D)
+    assert out[1]["c"] == 23.0 and out[1]["l"] == 22.8 and out[1]["v"] == 1.32   # thêm 0,13 tr cp của ATC
+    assert out[0] == H[0] and out[2] == H[2] and H[1]["c"] == 23.45               # nến khác và dữ liệu gốc không đổi
