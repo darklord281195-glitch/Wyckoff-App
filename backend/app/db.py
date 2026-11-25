@@ -30,6 +30,10 @@ CREATE TABLE IF NOT EXISTS backtest_stats (       -- kết quả backtest theo l
   plan TEXT PRIMARY KEY, n INTEGER, hit_t1 REAL, stop REAL, timeout REAL, avg_r REAL, ci_lo REAL, ci_hi REAL,
   avg_days REAL, period TEXT, slip REAL, updated TEXT
 );
+CREATE TABLE IF NOT EXISTS scenario_stats (       -- tỷ lệ kịch bản HORIZON phiên sau mỗi phiên có kế hoạch (app.backtest); up/flat/down là %
+  plan TEXT NOT NULL, light TEXT NOT NULL, n INTEGER, up REAL, flat REAL, down REAL, up_days REAL, down_days REAL,
+  horizon INTEGER, period TEXT, updated TEXT, PRIMARY KEY (plan, light)
+);
 CREATE TABLE IF NOT EXISTS settings (             -- cài đặt người dùng (JSON theo key), vd vốn và ngưỡng rủi ro
   key TEXT PRIMARY KEY, value TEXT
 );

@@ -1,13 +1,15 @@
 "use client";
 import Link from "next/link";
 import { Fragment, useEffect, useState } from "react";
-import { Plan, api, num, pct, price, type PortfolioRisk, type Settings } from "@/lib/api";
+import { Plan, api, num, pct, price, type PortfolioRisk, type ScenarioStat, type Settings } from "@/lib/api";
+import ScenarioOdds from "./ScenarioOdds";
 
 const LS_KEY = "wyckoff-sizing";
 
 /** Kế hoạch giao dịch: vùng vào, cắt lỗ, mục tiêu Nhân–Quả, điểm sẵn sàng, tính khối lượng và ghi nhận lệnh mua. */
 /** readOnly: đang xem phiên cũ -> ẩn phần ghi nhận lệnh mua */
-export default function PlanCard({ sym, plan, c, unit, readOnly }: { sym: string; plan: Plan; c: number; unit: "pt" | "k"; readOnly?: boolean }) {
+export default function PlanCard({ sym, plan, c, unit, readOnly, odds }: { sym: string; plan: Plan; c: number; unit: "pt" | "k"; readOnly?: boolean;
+  odds?: { light: string | null; rows: ScenarioStat[] } }) {
   const [capital, setCapital] = useState(100);      // triệu đồng
   const [riskPct, setRiskPct] = useState(1);        // % vốn chấp nhận mất mỗi lệnh
   const [buyVnd, setBuyVnd] = useState(Math.round(c * 1000));   // giá mua thực tế (đồng)
@@ -70,6 +72,15 @@ export default function PlanCard({ sym, plan, c, unit, readOnly }: { sym: string
         <span className="muted">Điểm sẵn sàng <b style={{ color: "var(--fg)" }}>{plan.ready?.score ?? "–"}</b>/100</span>
       </div>
       <p style={{ margin: 0 }}>{plan.trigger}</p>
+      {(plan.steps?.length || plan.cancel) ? (
+        <div style={{ borderLeft: "3px solid var(--up)", paddingLeft: 12 }}>
+          <b>Kịch bản mua đẹp</b>
+          {plan.steps?.length ? <ol style={{ margin: "4px 0 0", paddingLeft: 20 }}>
+            {plan.steps.map((s, i) => <li key={i} className={i === 0 && plan.selloff ? "down" : ""}>{s}</li>)}</ol> : null}
+          {plan.cancel && <p style={{ margin: "6px 0 0" }}><b>Hủy kịch bản khi:</b> {plan.cancel}</p>}
+        </div>
+      ) : null}
+      {odds && <ScenarioOdds plan={plan} light={odds.light} rows={odds.rows} />}
 
       <div className="grid2">
         <div className="tbl">

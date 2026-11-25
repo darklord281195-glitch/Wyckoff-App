@@ -48,3 +48,52 @@ def test_plan_prices_on_tick():
 def test_tch_plan_is_backup_not_chase():
     p = analyse(load("TCH"), IDX)["plan"]
     assert p["kind"] == "Backup" and p["entry_hi"] < 13.9      # không mua đuổi ở giá hiện tại
+
+
+def test_plan_has_steps_and_cancel():
+    p = analyse(load("DPG"), IDX)["plan"]
+    assert len(p["steps"]) == 3 and "1/3" in p["steps"][0]
+    assert "triệu cp" in p["trigger"] and "triệu cp" in p["cancel"]
+    from app.fmt import price
+    assert price(p["stop"]) in p["cancel"]
+
+
+def test_selloff_detected_and_delays_lps():
+    from app.core.plan import selloff
+    R = load("DPG")
+    assert selloff(R) is None
+    x = R[-1]; v20 = sum(y["v"] for y in R[-20:]) / 20
+    R2 = R + [dict(d="2099-01-02", o=x["c"], h=x["c"] * 1.01, l=x["c"] * 0.95, c=x["c"] * 0.955, v=v20 * 1.4)]
+    assert selloff(R2) == "2099-01-02"
+    p = analyse(R2, IDX)["plan"]
+    if p and p.get("steps"):
+        assert p["selloff"] == "2099-01-02" and "bán mạnh" in p["steps"][0]
+
+
+def test_failed_breakout_switches_to_new_lps():
+    from app.core.plan import failed_breakout
+    R = load("CTS"); r = analyse(R, IDX); res = r["range"]["res"]
+    assert failed_breakout(R, res) is None
+    x = R[-1]; v = sum(y["v"] for y in R[-20:]) / 20
+    # vượt trần với KL thường (chưa phải SOS), phiên sau đóng cửa lại dưới trần
+    R2 = R + [dict(d="2099-01-02", o=x["c"], h=res * 1.02, l=x["c"], c=res * 1.01, v=v * 1.2),
+              dict(d="2099-01-03", o=res * 1.01, h=res * 1.01, l=res * 0.985, c=res * 0.99, v=v * 0.8)]
+    p = analyse(R2, IDX)["plan"]
+    assert p["kind"].startswith("LPS mới")
+    assert res * 0.94 <= p["entry_lo"] < p["entry_hi"] < res        # chờ dưới trần, không mua đuổi
+    assert p["stop"] < p["entry_lo"] and p["targets"][0]["price"] >= res * 1.02 * 0.999   # T1 = đỉnh cú vượt
+
+
+def test_scenario_outcome_and_rates():
+    from app.backtest import outcome, scenario_rows
+    bar = lambda h, c: dict(h=h, c=c)
+    R = [bar(10, 10)] + [bar(10.2, 10)] * 3 + [bar(11.5, 11)] + [bar(10, 10)] * 30
+    assert outcome(R, 0, 9.5, 11.0) == ("up", 4)                     # chạm T1 ở phiên thứ 4
+    assert outcome([bar(10, 10), bar(10.1, 9.4)] + R, 0, 9.5, 11.0) == ("down", 1)
+    assert outcome([bar(10, 10)] * 25, 0, 9.5, 11.0) == ("flat", 20)
+    assert outcome([bar(10, 10)] * 5, 0, 9.5, 11.0) is None          # chưa đủ 20 phiên để biết
+    rows = scenario_rows([dict(plan="LPS", light="green", out=o, days=d) for o, d in
+                          (("up", 4), ("up", 6), ("down", 2), ("flat", 20))])
+    s = rows[("LPS", "green")]
+    assert (s["n"], s["up"], s["flat"], s["down"], s["up_days"]) == (4, 50.0, 25.0, 25.0, 5.0)
+    assert rows[("LPS", "*")]["n"] == 4

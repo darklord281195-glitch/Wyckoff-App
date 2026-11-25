@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .db import connect
-from .core.data import get_ohlcv
+from .core.data import get_ohlcv, fetch_remote
 from .core.wyckoff import analyse, trim, ANALYSIS_DAYS
 from .core.market import traffic_light
 from .core.positions import simulate
@@ -199,12 +199,27 @@ def symbol(code: str, at: dt.date | None = None, start: dt.date | None = Query(N
     fundamentals = _fundamentals(code, at) if len(code) == 3 else None
     kind = ((res or {}).get("plan") or {}).get("kind")
     st = kind and conn.execute("SELECT * FROM backtest_stats WHERE plan=?", (kind.split(" (")[0],)).fetchone()
+    try:
+        light = market(at)["light"]          # đèn của phiên đang xem (phiên quét gần nhất nếu không có `at`)
+    except HTTPException:
+        light = None
+    sc = [dict(x) for x in conn.execute("SELECT * FROM scenario_stats WHERE plan=?", (kind.split(" (")[0],))] if kind else []
     lst = listing(conn)
     info = lst.get(code, {})
     return dict(sym=code, groups=group_of(code, lst), name=info.get("name"), floor=info.get("floor"),
                 sector=info.get("icb_name"), unit="pt" if len(code) > 3 else "k",    # VNM, VND... là cổ phiếu
                 ohlcv=full,
-                analysis=res, signals=signals(120, code, at), at=at, start=start, foreign=fx, foreign_error=fx_err, plan_stats=dict(st) if st else None, fundamentals=fundamentals, in_watchlist=code in watchlist(conn))
+                analysis=res, signals=signals(120, code, at), at=at, start=start, foreign=fx, foreign_error=fx_err, plan_stats=dict(st) if st else None,
+                scenario_stats=dict(light=light, rows=sc), fundamentals=fundamentals, in_watchlist=code in watchlist(conn))
+
+
+@app.get("/api/symbols/{code}/hourly")
+def hourly(code: str):
+    """Nến 1 giờ ~1 năm gần nhất, tải thẳng từ VNDirect mỗi lần xem (không lưu DB)."""
+    try:
+        return fetch_remote(code.upper(), 365, retries=2, res="60")
+    except RuntimeError as e:
+        raise HTTPException(502, str(e))
 
 
 class WatchItem(BaseModel):

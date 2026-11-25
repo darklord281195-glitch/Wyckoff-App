@@ -5,7 +5,7 @@ Hàm thuần: nhận R (OHLCV), kết quả analyse() và chỉ số các mốc 
 Đây là ước lượng của bộ lọc tự động, không phải khuyến nghị đầu tư.
 """
 import math
-from ..fmt import price, num
+from ..fmt import price, num, day
 
 REVERSAL = 3          # P&F 3 ô đảo chiều (chuẩn Wyckoff)
 TIME_STOP = 20        # số phiên chờ tối đa sau khi vào mà giá chưa chạm T1
@@ -127,7 +127,17 @@ def make_plan(R, r: dict, ix: dict, floor: str | None = None) -> dict | None:
                 time_stop=TIME_STOP, targets=[], rr=None, risk_pct=None, ready=readiness(R, r, ix), notes=[])
 
     recent_test = [e for e in r["events"] if e["k"] in ("Spring", "ST") and e["d"] >= R[max(0, n - 15)]["d"]]
-    if tag in ("D-LPS", "D-LPS?"):
+    fb = failed_breakout(R, res)
+    if fb:
+        fb = max(fb, res * 0.94)          # như LPS: không sâu hơn trần cũ −6%
+    if fb and tag not in ("D-LPS", "D-LPS?", "D-SOS", "E?", "dưới hỗ trợ") and c >= fb * 0.99:
+        # vượt trần rồi đóng cửa lại dưới trần: không chờ phá trần lần nữa, chờ LPS mới quanh đáy trước cú vượt
+        plan.update(kind="LPS mới (vượt trần hỏng)", entry_lo=fb, entry_hi=fb * 1.015,
+                    trigger=f"Vượt trần {price(res)} rồi đóng cửa lại dưới trần: cung ở trần còn. Không mua đuổi; "
+                            f"chờ giá lùi về đáy trước cú vượt ({price(fb)}), giữ đáy ít nhất {LPS_HOLD} phiên với KL thấp rồi quay đầu.",
+                    stop=fb * 0.99,
+                    stop_reason="Thủng đáy trước cú vượt trần: lần vượt là phá vỡ giả, quay lại đi ngang trong vùng")
+    elif tag in ("D-LPS", "D-LPS?"):
         # vùng LPS: từ đáy LPS (không thấp hơn trần cũ −6%) tới trần cũ +3%
         lo = max(min(lv.get("support", res), res * 0.97), res * 0.94); hi = res * 1.03
         plan.update(kind="LPS", entry_lo=lo, entry_hi=hi,
@@ -167,6 +177,7 @@ def make_plan(R, r: dict, ix: dict, floor: str | None = None) -> dict | None:
     plan["entry_lo"] = on_tick(plan["entry_lo"], floor, up=True)
     plan["entry_hi"] = on_tick(plan["entry_hi"], floor)
     plan["stop"] = on_tick(plan["stop"], floor)
+    _scenario(plan, R, res)
 
     # mục tiêu: kháng cự gần + Nhân–Quả (P&F)
     end = ix.get("lps") or ix.get("pk") or (n - 1)
@@ -176,7 +187,11 @@ def make_plan(R, r: dict, ix: dict, floor: str | None = None) -> dict | None:
     above = ref * 1.02
     res_cands = [x for x in (overhead(R, above, n), lv.get("resistance")) if x and x > above]
     targets = []
-    if res_cands:
+    if fb and plan["kind"].startswith("LPS mới"):   # T1 = đỉnh cú vượt hỏng, nơi cung vừa xuất hiện
+        top = max(x["h"] for x in R[-6:])
+        targets.append(dict(k="", price=top, basis="Đỉnh cú vượt trần hỏng – cung vừa xuất hiện ở đây", ce=False))
+        above = max(above, top * 0.999)
+    elif res_cands:
         targets.append(dict(k="", price=min(res_cands), basis="Kháng cự gần (đỉnh cũ) – chốt lời một phần", ce=False))
     targets.append(dict(k="", price=ce["conservative"], ce=True,
                         basis=f"Nhân–Quả thận trọng: {ce['cols']} cột P&F × ô {num(ce['box'], 2)} × 3 cộng từ đáy"))
@@ -210,6 +225,65 @@ def make_plan(R, r: dict, ix: dict, floor: str | None = None) -> dict | None:
     for k in ("entry_lo", "entry_hi", "stop"):
         if plan[k] is not None: plan[k] = round(plan[k], 3)
     return plan
+
+
+def selloff(R, look: int = 3) -> str | None:
+    """Phiên bán mạnh trong `look` phiên gần nhất: giảm ≥ 3%, KL ≥ 1,2 lần TB20 và đóng cửa ở 1/3 dưới của biên độ.
+    Trả về ngày của phiên gần nhất như vậy, hoặc None."""
+    for i in range(len(R) - 1, max(21, len(R) - look) - 1, -1):
+        x, p = R[i], R[i - 1]
+        rng = x["h"] - x["l"]
+        v20 = _mean([y["v"] for y in R[i - 20:i]])
+        if rng > 0 and x["c"] <= p["c"] * 0.97 and x["v"] >= 1.2 * v20 and (x["c"] - x["l"]) / rng <= 1 / 3:
+            return x["d"]
+    return None
+
+
+def failed_breakout(R, res: float, look: int = 5, base: int = 7) -> float | None:
+    """Vượt trần hỏng: trong `look` phiên gần nhất có phiên đóng cửa trên trần, nay đóng cửa lại dưới trần.
+    Trả về đáy thấp nhất `base` phiên trước phiên vượt đầu tiên (đáy LPS cũ), hoặc None."""
+    n = len(R)
+    if R[-1]["c"] >= res:
+        return None
+    above = [i for i in range(max(base, n - look), n - 1) if R[i]["c"] > res]
+    if not above:
+        return None
+    return min(x["l"] for x in R[above[0] - base:above[0]])
+
+
+def _scenario(plan: dict, R, res: float):
+    """Thêm vào kế hoạch: ngưỡng KL bằng số (triệu cp), các bước mua chia 1/3, điều kiện hủy và cảnh báo phiên bán mạnh."""
+    kind = plan["kind"]
+    if not plan["entry_lo"] or kind not in ("LPS", "LPS mới (vượt trần hỏng)", "Backup", "Phá trần (SOS)", "Spring/Test"):
+        plan.update(steps=[], cancel="", selloff=None)
+        return
+    v20 = _mean([x["v"] for x in R[-21:-1]])
+    lo_v, hi_v = num(v20, 1), num(v20 * 1.5, 1)
+    zone = f"{price(plan['entry_lo'])}–{price(plan['entry_hi'])}"
+    stop = price(plan["stop"]) if plan["stop"] else "cắt lỗ"
+    if kind == "Phá trần (SOS)":
+        plan["trigger"] = plan["trigger"].replace("1,5 lần TB20", f"1,5 lần TB20 (≥ {hi_v} triệu cp)")
+        steps = [f"Phiên đóng cửa vượt {price(res)} với KL ≥ {hi_v} triệu cp: mua 1/3.",
+                 f"Lùi lại vùng {zone} với KL < {lo_v} triệu cp rồi giữ được (LPS/Backup): mua thêm 1/3.",
+                 "Vượt đỉnh của phiên phá trần: mua nốt 1/3."]
+        cancel = f"Đóng cửa trở lại dưới {price(res)} trong 3 phiên sau khi vượt (phá vỡ giả), hoặc đóng cửa dưới {stop}."
+    else:
+        plan["trigger"] += f" KL thấp nghĩa là dưới {lo_v} triệu cp (TB20)."
+        first = "phiên Test đóng cửa nửa trên, KL thấp" if kind == "Spring/Test" else "phiên quay đầu (đóng cửa tăng ở nửa trên phiên, KL nhích lên)"
+        # LPS/Backup đã ở trên trần cũ: mốc xác nhận là đỉnh 20 phiên gần nhất (đỉnh nhịp SOS)
+        top = res if kind == "Spring/Test" else max(x["h"] for x in R[-20:])
+        steps = [f"Mua 1/3 trong vùng {zone} ở {first}.",
+                 f"Mua thêm 1/3 khi giá vượt đỉnh của phiên mua với KL > {lo_v} triệu cp.",
+                 f"Mua nốt 1/3 khi đóng cửa vượt {price(top)} với KL ≥ {hi_v} triệu cp, hoặc ở nhịp Backup sau đó."]
+        if kind == "Spring/Test":
+            steps = steps[:1] + ["Chưa vượt đỉnh hạ gần nhất thì giữ ở mức thăm dò (≤ 1/3)."] + steps[1:]
+        cancel = f"Đóng cửa dưới {stop}, hoặc phiên giảm có KL ≥ {hi_v} triệu cp (cung quay lại)."
+    d = selloff(R)
+    if d:
+        steps.insert(0, f"Vừa có phiên bán mạnh {day(d)} (giảm ≥ 3%, KL lớn, đóng cửa gần đáy phiên): chưa mua, "
+                        f"chờ ít nhất 2 phiên lùi với KL < {lo_v} triệu cp rồi mới xét bước 1.")
+        plan["notes"].insert(0, f"Phiên {day(d)} bị bán mạnh: cung còn, điểm mua lùi lại, có thể phải chờ LPS thấp hơn.")
+    plan.update(steps=steps, cancel=cancel, selloff=d)
 
 
 def supply_sign(R) -> bool:
