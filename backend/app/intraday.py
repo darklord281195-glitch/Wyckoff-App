@@ -58,7 +58,7 @@ def run_once(conn, dry_run=False, log=print):
         else:
             row = conn.execute("SELECT data FROM scan_results WHERE sym=? ORDER BY date DESC LIMIT 1", (s,)).fetchone()
             plan = row and json.loads(row[0]).get("plan")
-            if plan and plan.get("kind") != "Không vào":
+            if plan and plan.get("entry_lo"):            # "Không vào" / "Chờ (Pha B)" chưa có vùng mua
                 alerts += check(bar, plan=plan)
         for kind, text in dict(alerts).items():    # nhiều lệnh cùng mã: mỗi loại 1 dòng
             if dry_run or conn.execute("INSERT OR IGNORE INTO intraday_alerts(date, sym, kind) VALUES (?,?,?)",

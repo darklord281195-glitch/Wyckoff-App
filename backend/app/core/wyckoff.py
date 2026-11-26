@@ -136,6 +136,19 @@ def lower_highs(R, ar, w=5):
     return chain
 
 
+def test_kind(R, V, b, sc, sup, back=2):
+    """Gọi tên một lần quay về đáy vùng (phiên b):
+    - Spring: thủng ĐÁY THẤP NHẤT trước đó của vùng (không chỉ SC) rồi đóng cửa lại trên đáy vùng trong `back` phiên;
+    - Thủng đáy / SOW: đóng cửa vẫn dưới đáy vùng (SOW khi KL ≥ 1,5 lần TB20) – chưa phải Spring;
+    - ST: còn lại (chạm đáy cũ, hoặc thủng SC nhưng không thấp hơn đáy trước đó)."""
+    if R[b]["l"] >= sup:
+        return "ST"
+    if not any(R[i]["c"] >= sup for i in range(b, min(b + back + 1, len(R)))):
+        return "SOW" if V[b] >= 1.5 * _mean(V[max(0, b - 20):b]) else "Thủng đáy"
+    prior = min(x["l"] for x in R[sc:b])
+    return "Spring" if R[b]["l"] < prior else "ST"
+
+
 def classify(r):
     """Mã đang giống biến thể sơ đồ nào: dict(variant acc1/acc2/dist1/dist2/None, phase A–E/None, title, note)."""
     dd = r.get("distrib")
@@ -155,7 +168,7 @@ def classify(r):
         return dict(variant=v, phase=None, title=NAMES[v] + " – thất bại",
                     note="Đã vượt trần rồi rơi sâu lại vào vùng: cấu trúc hỏng, có thể chuyển thành phân phối.")
     down = r.get("ma200") and r["ma50"] < r["ma200"]
-    brk = next((e for e in reversed(r["events"]) if e["k"] == "Spring"), None)
+    brk = next((e for e in reversed(r["events"]) if e["k"] in ("Spring", "SOW", "Thủng đáy")), None)
     if tag == "dưới hỗ trợ" and down and brk and (brk["vx"] or 0) >= 1.5:
         # thủng đáy với KL lớn trong xu hướng giảm: SOW của vùng tái phân phối, không phải Spring
         return dict(variant="redist", phase="D", title=NAMES["redist"],
@@ -230,7 +243,7 @@ def analyse(R, IDX=None, floor=None, lookback=190, keep_distrib=False):
             j = k
             while j + 1 < n and R[j + 1]["l"] <= sup * 1.04: j += 1
             b = min(range(k, j + 1), key=lambda i: R[i]["l"])
-            events.append(ev(b, "Spring" if R[b]["l"] < sup else "ST", "low"))
+            events.append(ev(b, test_kind(R, V, b, sc, sup), "low"))
             k = j + 1
         else:
             k += 1

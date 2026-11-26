@@ -127,10 +127,27 @@ def make_plan(R, r: dict, ix: dict, floor: str | None = None) -> dict | None:
                 time_stop=TIME_STOP, targets=[], rr=None, risk_pct=None, ready=readiness(R, r, ix), notes=[])
 
     recent_test = [e for e in r["events"] if e["k"] in ("Spring", "ST") and e["d"] >= R[max(0, n - 15)]["d"]]
-    fb = failed_breakout(R, res)
-    if fb:
-        fb = max(fb, res * 0.94)          # như LPS: không sâu hơn trần cũ −6%
-    if fb and tag not in ("D-LPS", "D-LPS?", "D-SOS", "E?", "dưới hỗ trợ") and c >= fb * 0.99:
+    fbx = failed_breakout(R, res)
+    fb = fb_top = None
+    if fbx:
+        fb, fb_top = max(fbx[0], res * 0.94), fbx[1]      # như LPS: nền không sâu hơn trần cũ −6%
+    deep = None
+    if fb and c < fb * 0.99:
+        # đã thủng cả nền trước cú vượt: chờ LPS sâu ở đáy nâng gần nhất trong vùng (không quay lại kế hoạch phá trần)
+        lows = [e["price"] for e in r["events"] if e["k"] in ("ST", "Spring") and e["price"] < c * 0.99]
+        deep = max(lows) if lows else None
+    if fb and tag not in ("D-SOS", "E?", "dưới hỗ trợ") and c < fb * 0.99:
+        ma50 = r.get("ma50") or c
+        if deep:
+            plan.update(kind="LPS sâu (vượt trần hỏng)", entry_lo=deep * 1.005, entry_hi=max(deep * 1.04, min(ma50, c * 0.99)),
+                        trigger=f"Vượt trần {price(res)} hỏng và đã thủng nền {price(fb)}: không mua lại ở trên trần. "
+                                f"Chờ giá lùi về đáy nâng {price(deep)}–MA50 với KL thấp, giữ đáy rồi quay đầu.",
+                        stop=deep * 0.99,
+                        stop_reason="Thủng đáy nâng trong vùng: cú vượt trần là UTAD, vùng có thể là phân phối")
+        else:
+            plan.update(kind="Không vào", trigger=f"Vượt trần {price(res)} hỏng và đã thủng nền {price(fb)}: "
+                                                 "không mua lại ở trên trần, chờ vùng đáy mới.")
+    elif fb and tag not in ("D-SOS", "E?", "dưới hỗ trợ"):
         # vượt trần rồi đóng cửa lại dưới trần: không chờ phá trần lần nữa, chờ LPS mới quanh đáy trước cú vượt
         plan.update(kind="LPS mới (vượt trần hỏng)", entry_lo=fb, entry_hi=fb * 1.015,
                     trigger=f"Vượt trần {price(res)} rồi đóng cửa lại dưới trần: cung ở trần còn. Không mua đuổi; "
@@ -150,6 +167,11 @@ def make_plan(R, r: dict, ix: dict, floor: str | None = None) -> dict | None:
                     trigger="Không mua đuổi. Chờ giá lùi về test trần cũ với KL thấp rồi giữ được.",
                     stop=min(res * 0.95, low10) * 0.99,
                     stop_reason="Thủng trần cũ sâu: SOS là phá vỡ giả")
+    elif tag == "B/C" and not recent_test and c < res * 0.92:
+        # Pha B còn xa trần: chưa có điểm mua (cùng ngưỡng −8% với tín hiệu "Tiềm năng sớm")
+        plan.update(kind="Chờ (Pha B)",
+                    trigger=f"Pha B, giá còn cách trần {price(res)} hơn 8%: chưa có điểm mua. Chờ Spring/ST về gần đáy "
+                            f"{price(sup)} với KL dưới TB20, hoặc phiên đóng cửa vượt trần với KL ≥ 1,5 lần TB20.")
     elif tag == "D sớm" or (tag in ("sát trần", "B/C") and not recent_test):
         plan.update(kind="Phá trần (SOS)", entry_lo=res * 1.005, entry_hi=res * 1.04,
                     trigger=f"Vào khi đóng cửa vượt {price(res)} với KL ≥ 1,5 lần TB20; hoặc chờ LPS sau đó (an toàn hơn).",
@@ -163,6 +185,11 @@ def make_plan(R, r: dict, ix: dict, floor: str | None = None) -> dict | None:
                     trigger="Vào tỷ trọng nhỏ (≤1/3) sau phiên test đáy KL thấp và đóng cửa trên đáy SC.",
                     stop=min(t["price"], sup) * 0.98,
                     stop_reason="Thủng đáy Spring/Test: không phải tích lũy, giá giảm tiếp")
+        bar = next((x for x in R if x["d"] == t["d"]), None)
+        if t["k"] == "Spring" and (t["vx"] or 0) >= 1.5 and bar and bar["h"] > bar["l"] \
+                and (bar["c"] - bar["l"]) / (bar["h"] - bar["l"]) < 0.5:
+            plan["notes"].insert(0, f"Spring {day(t['d'])} có KL lớn (x{num(t['vx'], 1)}) mà đóng cửa nửa dưới phiên: "
+                                    "kém tin cậy, cần một phiên Test KL thấp xác nhận.")
     elif tag == "dưới hỗ trợ":
         plan.update(kind="Không vào", trigger=f"Giá dưới hỗ trợ {price(sup)}: chờ phiên đóng cửa trở lại trên hỗ trợ "
                                              "với KL thấp (Spring) rồi mới tính.")
@@ -187,16 +214,27 @@ def make_plan(R, r: dict, ix: dict, floor: str | None = None) -> dict | None:
     above = ref * 1.02
     res_cands = [x for x in (overhead(R, above, n), lv.get("resistance")) if x and x > above]
     targets = []
-    if fb and plan["kind"].startswith("LPS mới"):   # T1 = đỉnh cú vượt hỏng, nơi cung vừa xuất hiện
-        top = max(x["h"] for x in R[-6:])
-        targets.append(dict(k="", price=top, basis="Đỉnh cú vượt trần hỏng – cung vừa xuất hiện ở đây", ce=False))
-        above = max(above, top * 0.999)
+    kind = plan["kind"] or ""
+    if fb_top and kind.startswith(("LPS mới", "LPS sâu")):   # đỉnh cú vượt hỏng, nơi cung vừa xuất hiện
+        if kind.startswith("LPS sâu") and res > above:
+            targets.append(dict(k="", price=res, basis="Trần vùng cũ – nơi cú vượt bị đạp lại", ce=False, main=True))
+        targets.append(dict(k="", price=fb_top, basis="Đỉnh cú vượt trần hỏng – cung vừa xuất hiện ở đây", ce=False))
+        above = max(above, (targets[0]["price"] if kind.startswith("LPS sâu") else fb_top) * 0.999)
+    elif kind == "Spring/Test":
+        # Pha C: giá phải vượt đỉnh hạ gần nhất rồi trần trước; Nhân–Quả chỉ tính sau khi vượt trần
+        lh = r.get("lh") or []
+        if lh and lh[-1]["h"] < res * 0.98:
+            targets.append(dict(k="", price=lh[-1]["h"], basis="Đỉnh hạ gần nhất – phải vượt mới thoát chuỗi đỉnh hạ", ce=False))
+        elif res_cands and min(res_cands) < res * 0.98:
+            targets.append(dict(k="", price=min(res_cands), basis="Kháng cự gần (đỉnh cũ) – chốt lời một phần", ce=False))
+        targets.append(dict(k="", price=res, basis="Trần vùng (AR) – đích của nhịp hồi từ đáy Pha C", ce=False, main=True))
     elif res_cands:
         targets.append(dict(k="", price=min(res_cands), basis="Kháng cự gần (đỉnh cũ) – chốt lời một phần", ce=False))
     targets.append(dict(k="", price=ce["conservative"], ce=True,
                         basis=f"Nhân–Quả thận trọng: {ce['cols']} cột P&F × ô {num(ce['box'], 2)} × 3 cộng từ đáy"))
     targets.append(dict(k="", price=ce["aggressive"], ce=True, basis="Nhân–Quả mở rộng: cộng từ đường đếm"))
     targets = sorted([t for t in targets if t["price"] > above], key=lambda t: t["price"])
+    targets = [t for i, t in enumerate(targets) if i == 0 or t["price"] > targets[i - 1]["price"] * 1.02 or t.get("main")]
     for i, t in enumerate(targets):
         t["k"] = f"T{i + 1}"; t["price"] = on_tick(t["price"], floor)
     plan["targets"] = targets; plan["cause"] = ce
@@ -211,7 +249,8 @@ def make_plan(R, r: dict, ix: dict, floor: str | None = None) -> dict | None:
                 t["pct"] = round((t["price"] / entry - 1) * 100, 1)
                 t["rr"] = round((t["price"] - entry) / risk, 1)
             plan["rr_t1"] = targets[0]["rr"]
-            main = next((t for t in targets if t["ce"]), targets[0])     # mục tiêu Nhân–Quả gần nhất
+            # mục tiêu chính: trần vùng với Spring/Test và LPS sâu, còn lại là Nhân–Quả gần nhất
+            main = next((t for t in targets if t.get("main")), None) or next((t for t in targets if t["ce"]), targets[0])
             plan["rr"] = main["rr"]; plan["main_target"] = main["k"]
         if plan["risk_pct"] < -8:
             plan["notes"].append("Cắt lỗ xa hơn 8%: giảm tỷ trọng hoặc chờ điểm vào gần hơn.")
@@ -257,22 +296,26 @@ def selloff(R, look: int = 3) -> str | None:
     return None
 
 
-def failed_breakout(R, res: float, look: int = 5, base: int = 7) -> float | None:
+def failed_breakout(R, res: float, look: int = 5, base: int = 7) -> tuple[float, float] | None:
     """Vượt trần hỏng: trong `look` phiên gần nhất có phiên đóng cửa trên trần, nay đóng cửa lại dưới trần.
-    Trả về đáy thấp nhất `base` phiên trước phiên vượt đầu tiên (đáy LPS cũ), hoặc None."""
+    Trả về (nền, đỉnh): nền = đáy thấp nhất `base` phiên trước phiên ĐẦU TIÊN của đợt đóng cửa trên trần
+    (lùi về tận cú vượt thật, vd SOS 2 tuần trước), đỉnh = giá cao nhất từ cú vượt tới nay. Không có thì None."""
     n = len(R)
     if R[-1]["c"] >= res:
         return None
     above = [i for i in range(max(base, n - look), n - 1) if R[i]["c"] > res]
     if not above:
         return None
-    return min(x["l"] for x in R[above[0] - base:above[0]])
+    i0 = above[0]
+    while i0 - 1 >= base and R[i0 - 1]["c"] > res:
+        i0 -= 1
+    return min(x["l"] for x in R[i0 - base:i0]), max(x["h"] for x in R[i0:])
 
 
 def _scenario(plan: dict, R, res: float):
     """Thêm vào kế hoạch: ngưỡng KL bằng số (triệu cp), các bước mua chia 1/3, điều kiện hủy và cảnh báo phiên bán mạnh."""
     kind = plan["kind"]
-    if not plan["entry_lo"] or kind not in ("LPS", "LPS mới (vượt trần hỏng)", "Backup", "Phá trần (SOS)", "Spring/Test"):
+    if not plan["entry_lo"] or kind not in ("LPS", "LPS mới (vượt trần hỏng)", "LPS sâu (vượt trần hỏng)", "Backup", "Phá trần (SOS)", "Spring/Test"):
         plan.update(steps=[], cancel="", selloff=None, timing="")
         return
     v20 = _mean([x["v"] for x in R[-21:-1]])
