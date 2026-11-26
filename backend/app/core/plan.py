@@ -181,6 +181,8 @@ def make_plan(R, r: dict, ix: dict, floor: str | None = None) -> dict | None:
             plan["notes"].append("Chưa có SOS: đây là kế hoạch chờ, chưa phải điểm vào.")
     elif tag in ("sát trần", "B/C") and recent_test:
         t = min(recent_test, key=lambda e: e["price"])
+        # Spring trong 15 phiên được ưu tiên hơn ST (nhãn trên bảng tổng quan và bộ lọc Spring / ST)
+        plan["test_kind"] = "Spring" if any(e["k"] == "Spring" for e in recent_test) else "ST"
         plan.update(kind="Spring/Test", entry_lo=min(sup, t["price"]) * 1.005, entry_hi=max(sup, t["price"]) * 1.04,
                     trigger="Vào tỷ trọng nhỏ (≤1/3) sau phiên test đáy KL thấp và đóng cửa trên đáy SC.",
                     stop=min(t["price"], sup) * 0.98,

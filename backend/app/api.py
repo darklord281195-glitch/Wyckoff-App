@@ -127,7 +127,8 @@ def scan_latest(group: str | None = None, date: str | None = None):
                          ready=(p.get("ready") or {}).get("score"), rr=p.get("rr"), plan_kind=p.get("kind"),
                          entry_lo=p.get("entry_lo"), entry_hi=p.get("entry_hi"), stop=p.get("stop"),
                          in_zone=p.get("in_zone"),
-                         test=next((e["k"] for e in reversed(r.get("events", [])) if e["k"] in ("Spring", "ST")), None)
+                         # Spring/ST trong 15 phiên gần nhất (kế hoạch Spring/Test); bản quét cũ chưa có test_kind thì lấy sự kiện cuối
+                         test=(p.get("test_kind") or next((e["k"] for e in reversed(r.get("events", [])) if e["k"] in ("Spring", "ST")), None))
                          if p.get("kind") == "Spring/Test" else None,
                          # % giá so với đáy SC, chỉ khi còn trong/quanh vùng tích lũy (chưa SOS)
                          sc=round((r["c"] / r["range"]["sup"] - 1) * 100, 1)

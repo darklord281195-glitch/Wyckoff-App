@@ -74,8 +74,8 @@ export default function Home() {
       (group === "all" || r.groups.includes(group)) &&
       (stage === "all" || (stage === "early" ? isEarly(r) || r.tag === "D sớm"
         : stage === "zone" ? !!r.in_zone : stage === "spring" ? r.test === "Spring"
-        : stage === "test" ? !!r.test
-        : stage === "nearsc" ? r.sc != null && Math.abs(r.sc) <= 5 : r.stage === stage)) && r.liq >= minLiq);
+        : stage === "test" ? r.test === "ST"
+        : stage === "nearsc" ? r.sc != null && Math.abs(r.sc) <= 5 && !r.test : r.stage === stage)) && r.liq >= minLiq);
     const val = (r: Row): number | string =>
       sort.k === "sym" ? r.sym : sort.k === "stage" ? STAGE_ORDER[r.stage] * 1000 - (r.rs20 ?? -99) : (r[sort.k] ?? -1e9);
     return v.sort((a, b) => {
@@ -167,9 +167,9 @@ export default function Home() {
               <option value="all">Mọi pha</option>
               <option value="early">🔭 Tiềm năng sớm</option>
               <option value="zone">🎯 Đang trong vùng vào</option>
-              <option value="spring">🌱 Spring (Pha C, 15 phiên)</option>
-              <option value="test">🌱 Spring + ST về đáy</option>
-              <option value="nearsc">⏳ Sát đáy SC ±5% (chờ Spring)</option>
+              <option value="spring">🌱 Spring: thủng đáy rồi đóng lại trên (15 phiên)</option>
+              <option value="test">🌱 ST về đáy, chưa Spring (15 phiên)</option>
+              <option value="nearsc">⏳ Sát đáy SC ±5%, chưa test (chờ Spring)</option>
               {Object.entries(STAGE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
             <label className="muted">GT ≥ <input id="minliq" type="number" value={minLiq} onChange={(e) => setMinLiq(+e.target.value)} style={{ width: 70 }} /> tỷ</label>
@@ -191,7 +191,7 @@ export default function Home() {
                     <span className="muted" style={{ fontSize: 11.5 }}>{r.floor ?? ""}</span></td>
                   <td><span className={`pill ${r.stage}`}>{r.tag}</span>
                     {r.test && <span className="muted" style={{ fontSize: 11.5 }}
-                      title={r.test === "Spring" ? "Thủng đáy rồi đóng lại trên đáy (Pha C) trong 15 phiên" : "Quay về gần đáy vùng trong 15 phiên"}>
+                      title={r.test === "Spring" ? "Thủng đáy thấp nhất trước đó rồi đóng cửa lại trên đáy vùng (Pha C) trong 15 phiên" : "Quay về chạm/gần đáy vùng nhưng không thủng đáy cũ (ST) trong 15 phiên"}>
                       {" "}🌱{r.test}</span>}
                     {stage === "nearsc" && r.sc != null && <div className="muted" style={{ fontSize: 11.5 }}
                       title="KL < 1 lần TB20 khi thủng/chạm đáy là dấu hiệu Spring thật; KL ≥ 1,5 lần mà đóng dưới đáy là gãy thật">
