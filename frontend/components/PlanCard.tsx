@@ -6,6 +6,11 @@ import ScenarioOdds from "./ScenarioOdds";
 
 const LS_KEY = "wyckoff-sizing";
 
+/** Văn bản backend ngăn ý bằng xuống dòng -> gạch đầu dòng (bản quét cũ không có xuống dòng thì thành 1 dòng). */
+const bullets = (s: string) => (
+  <ul style={{ margin: "4px 0 0", paddingLeft: 20 }}>{s.split("\n").map((x, i) => <li key={i}>{x}</li>)}</ul>
+);
+
 /** Kế hoạch giao dịch: vùng vào, cắt lỗ, mục tiêu Nhân–Quả, điểm sẵn sàng, tính khối lượng và ghi nhận lệnh mua. */
 /** readOnly: đang xem phiên cũ -> ẩn phần ghi nhận lệnh mua */
 export default function PlanCard({ sym, plan, c, unit, readOnly, odds }: { sym: string; plan: Plan; c: number; unit: "pt" | "k"; readOnly?: boolean;
@@ -77,9 +82,16 @@ export default function PlanCard({ sym, plan, c, unit, readOnly, odds }: { sym: 
           <b>Kịch bản mua đẹp</b>
           {plan.steps?.length ? <ol style={{ margin: "4px 0 0", paddingLeft: 20 }}>
             {plan.steps.map((s, i) => <li key={i} className={i === 0 && plan.selloff ? "down" : ""}>{s}</li>)}</ol> : null}
-          {plan.cancel && <p style={{ margin: "6px 0 0" }}><b>Hủy kịch bản khi:</b> {plan.cancel}</p>}
+          {plan.cancel && <><p style={{ margin: "6px 0 0" }}><b>Hủy kịch bản khi</b> (một trong các điều sau):</p>{bullets(plan.cancel)}</>}
+          {plan.timing && <><p style={{ margin: "6px 0 0" }}><b>Giờ vào lệnh</b></p>{bullets(plan.timing)}</>}
         </div>
       ) : null}
+      <div style={{ borderLeft: "3px solid var(--down)", paddingLeft: 12 }}>
+        <b>Kế hoạch bán</b>
+        {plan.take && <><p style={{ margin: "4px 0 0" }}><b className="up">Chốt lời</b></p>{bullets(plan.take)}</>}
+        {plan.take && <p style={{ margin: "6px 0 0" }}><b className="down">Cắt lỗ / thoát</b></p>}
+        {bullets(plan.exit)}
+      </div>
       {odds && <ScenarioOdds plan={plan} light={odds.light} rows={odds.rows} />}
 
       <div className="grid2">
@@ -121,7 +133,9 @@ export default function PlanCard({ sym, plan, c, unit, readOnly, odds }: { sym: 
                   {factor === 0 ? "Đèn đỏ: không mở lệnh mới (backtest kỳ vọng âm)"
                     : `Đèn vàng: rủi ro giảm còn ${num(effPct, 2)}%/lệnh`}</dd></>}
                 <dt>Lỗ tối đa</dt><dd>{num(maxLoss / 1e6, 2)} triệu</dd>
-                <dt>Số cp gợi ý</dt><dd>{num(shares)} cp</dd>
+                <dt>Số cp gợi ý</dt><dd>{num(shares)} cp · bước đầu 1/3: {num(Math.floor(shares / 300) * 100)} cp</dd>
+                <dt>Nếu dính T+2</dt><dd className="muted" style={{ fontFamily: "inherit" }}>
+                  bị đạp gấp đôi khoảng cắt lỗ khi chưa bán được: lỗ ≈ {num(maxLoss * 2 / 1e6, 2)} triệu</dd>
                 <dt>Giá trị lệnh</dt><dd>{num(value / 1e6, 1)} triệu ({num(value / (capital * 1e6) * 100)}% vốn)</dd>
                 {risk && heatAfter != null && factor > 0 && <><dt>Rủi ro danh mục</dt>
                   <dd className={heatAfter > risk.max_heat ? "down" : ""}>
@@ -155,8 +169,6 @@ export default function PlanCard({ sym, plan, c, unit, readOnly, odds }: { sym: 
       </div>
 
       <div>
-        <b>Kế hoạch bán</b>
-        <p style={{ margin: "4px 0 0" }}>{plan.exit}</p>
         {plan.cause && <p className="muted" style={{ margin: "4px 0 0" }}>
           Nhân: {plan.cause.cols} cột P&F (ô {num(plan.cause.box, 2)}, đảo 3 ô) → Quả ≈ {price(plan.cause.width, unit)}.
         </p>}

@@ -56,6 +56,8 @@ def test_plan_has_steps_and_cancel():
     assert "triệu cp" in p["trigger"] and "triệu cp" in p["cancel"]
     from app.fmt import price
     assert price(p["stop"]) in p["cancel"]
+    assert "14h15" in p["timing"] and price(p["entry_hi"]) in p["timing"]
+    assert price(p["targets"][0]["price"]) in p["take"] and price(p["stop"]) in p["exit"]
 
 
 def test_selloff_detected_and_delays_lps():
