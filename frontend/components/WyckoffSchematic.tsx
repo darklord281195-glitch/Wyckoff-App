@@ -47,6 +47,13 @@ export const WYCKOFF_NOTES: Record<string, Note> = {
     vol: "KL tăng khi lên, giảm khi lùi.", act: "Không mua đuổi. Người đang giữ chốt dần ở T1/T2, dời cắt lỗ lên." },
 };
 WYCKOFF_NOTES["LPS?"] = WYCKOFF_NOTES.LPS;
+// thủng đáy vùng mà chưa đóng cửa lại trên đáy: chưa phải Spring
+WYCKOFF_NOTES["Thủng đáy"] = { name: "Thủng đáy vùng (chưa phải Spring)",
+  what: "Giá thủng đáy vùng và đóng cửa vẫn dưới đáy. Chỉ thành Spring nếu 1–2 phiên sau đóng cửa lại trên đáy.",
+  vol: "KL chưa lớn (dưới 1,5 lần TB20).", act: "Chưa mua. Chờ phiên đóng cửa trở lại trên đáy với KL thấp." };
+WYCKOFF_NOTES.SOW = { name: "Thủng đáy với KL lớn (SOW)",
+  what: "Giá thủng đáy vùng với KL lớn và không lấy lại được đáy: bên bán thắng, vùng có thể là phân phối.",
+  vol: "KL ≥ 1,5 lần TB20.", act: "Không bắt đáy. Đang giữ thì cắt lỗ." };
 
 /** Ý nghĩa các mốc phân phối (dùng để nhận biết khi nào nên thoát lệnh đang giữ). */
 export const DIST_NOTES: Record<string, Note> = {

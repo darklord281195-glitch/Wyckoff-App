@@ -79,11 +79,12 @@ Câu mô tả đèn ghi rõ lý do.
 | Phần | Cách tính |
 |---|---|
 | **Điểm sẵn sàng 0–100** | Cung cạn (KL 10 phiên so với KL quanh SC) · đáy nâng / Spring KL thấp · vị trí trong vùng · RS20/RS60 dương · độ dài Nhân (số phiên từ SC). 🔭 *Tiềm năng sớm* = Pha B/C, điểm ≥ 70, cách trần ≤ 8% |
+| **Spring / ST** | *Spring*: đáy thấp hơn đáy thấp nhất trước đó của vùng và đóng cửa lại trên đáy vùng trong 2 phiên · *ST*: chạm lại đáy cũ · *Thủng đáy*: đóng cửa vẫn dưới đáy · *SOW*: thủng đáy với KL ≥ 1,5 lần TB20. Spring KL lớn mà đóng cửa nửa dưới phiên được ghi chú "cần Test xác nhận" |
 | **Đỉnh hạ** | Trong vùng chưa SOS: ≥ 2 đỉnh hồi sau AR thấp dần (đỉnh = cao nhất ±5 phiên) mà giá chưa đóng cửa vượt đỉnh gần nhất. Đánh dấu đỏ trên biểu đồ, ghi ở Ghi chú, cảnh báo kèm tín hiệu Spring. Chỉ để tham khảo: backtest 2019–2026 chỉ 14/1.326 lệnh mua rơi vào trường hợp này (điểm sẵn sàng đã loại phần lớn), quá ít để kết luận |
-| **Vùng vào** | *LPS*: đáy LPS (≥ trần −6%) → trần +3% · *Backup* (sau SOS): trần → trần +3% · *Phá trần*: đóng cửa vượt trần với KL ≥ 1,5 lần TB20 · *Spring/Test*: đáy → +4%, tỷ trọng nhỏ |
+| **Vùng vào** | *LPS*: đáy LPS (≥ trần −6%) → trần +3% · *Backup* (sau SOS): trần → trần +3% · *Phá trần*: đóng cửa vượt trần với KL ≥ 1,5 lần TB20 · *Spring/Test*: đáy → +4%, tỷ trọng nhỏ · *LPS mới* (vượt trần hỏng): nền = đáy 7 phiên trước phiên đầu tiên của đợt đóng cửa trên trần · *LPS sâu*: đã thủng cả nền → đáy nâng gần nhất trong vùng tới MA50, không bao giờ quay lại phá trần · *Chờ (Pha B)*: B/C còn cách trần > 8% và không test đáy 15 phiên → chưa có vùng vào |
 | **Cắt lỗ** | Theo cấu trúc: dưới đáy LPS / Spring / trần cũ −5–6%, trừ thêm 1–2%. Theo thời gian: 20 phiên chưa chạm T1 thì thoát. Cảnh báo nếu cắt lỗ xa hơn 8% |
 | **Mục tiêu** | T kháng cự: đỉnh cũ gần nhất, chốt lời một phần · **Nhân–Quả**: đếm ngang Point & Figure (giá đóng cửa, đảo 3 ô) từ SC tới LPS. *Thận trọng* = đáy + số cột × ô × 3, *mở rộng* = đường đếm + số cột × ô × 3 ⭐ |
-| **Lời/lỗ** | Tính tới mục tiêu Nhân–Quả gần nhất; dưới 2 lần thì ghi chú "chưa hấp dẫn" |
+| **Lời/lỗ** | Tính tới mục tiêu Nhân–Quả gần nhất (Spring/Test và LPS sâu: tới trần vùng, vì giá phải vượt trần trước; Nhân–Quả lùi thành T3); dưới 2 lần thì ghi chú "chưa hấp dẫn" |
 | **Bán** | Chạm T1: bán 1/3 và dời cắt lỗ về giá vốn. T2: bán thêm 1/3. Phần còn lại dời cắt lỗ lên đáy thấp nhất 10 phiên, bán hết ở mục tiêu cuối. 💰 *Chốt lời?* khi KL ≥ 2 lần TB20 mà giá đóng ở 40% dưới của biên độ phiên |
 | **Bước giá** | Vùng vào, cắt lỗ, mục tiêu làm tròn theo sàn: HOSE dưới 10.000đ bước 10đ, dưới 50.000đ bước 50đ, còn lại 100đ; HNX/UPCoM 100đ. Cắt lỗ và mục tiêu làm tròn xuống |
 

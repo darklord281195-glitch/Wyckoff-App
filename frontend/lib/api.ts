@@ -11,7 +11,7 @@ export type Plan = {
   cause?: { cols: number; box: number; width: number; conservative: number; aggressive: number };
   notes: string[]; exit: string;
   /** các bước mua chia 1/3, điều kiện hủy, ngày phiên bán mạnh gần đây (backend cũ có thể chưa có) */
-  steps?: string[]; cancel?: string; selloff?: string | null;
+  steps?: string[]; cancel?: string; selloff?: string | null; timing?: string; take?: string;
 };
 export type Analysis = {
   plan?: Plan | null; supply?: boolean;

@@ -56,6 +56,8 @@ def test_plan_has_steps_and_cancel():
     assert "triệu cp" in p["trigger"] and "triệu cp" in p["cancel"]
     from app.fmt import price
     assert price(p["stop"]) in p["cancel"]
+    assert "14h15" in p["timing"] and price(p["entry_hi"]) in p["timing"]
+    assert price(p["targets"][0]["price"]) in p["take"] and price(p["stop"]) in p["exit"]
 
 
 def test_selloff_detected_and_delays_lps():
@@ -97,3 +99,44 @@ def test_scenario_outcome_and_rates():
     s = rows[("LPS", "green")]
     assert (s["n"], s["up"], s["flat"], s["down"], s["up_days"]) == (4, 50.0, 25.0, 25.0, 5.0)
     assert rows[("LPS", "*")]["n"] == 4
+
+
+def test_test_kind_spring_needs_new_low_and_reclaim():
+    from app.core.wyckoff import test_kind
+    b = lambda l, c: dict(l=l, c=c)
+    V = [1.0] * 25
+    base = [b(10, 10.5)] + [b(10.5, 11)] * 20 + [b(9.9, 10.2)]          # SC 10, rồi một lần thủng xuống 9,9
+    assert test_kind(base + [b(9.8, 10.1)], V, 22, 0, 10) == "Spring"   # thấp hơn đáy trước đó, đóng lại trên 10
+    assert test_kind(base + [b(9.9, 10.1)], V, 22, 0, 10) == "ST"       # chỉ chạm lại đáy cũ 9,9
+    assert test_kind(base + [b(9.7, 9.75)], V, 22, 0, 10) == "Thủng đáy"
+    assert test_kind(base + [b(9.7, 9.75)], V[:22] + [2.0], 22, 0, 10) == "SOW"   # KL ≥ 1,5 lần TB20
+    assert test_kind(base + [b(10.1, 10.3)], V, 22, 0, 10) == "ST"
+
+
+def test_phase_b_far_from_ceiling_has_no_entry():
+    R = load("CII"); res = analyse(R, IDX)["range"]["res"]
+    x = R[-1]; v = sum(y["v"] for y in R[-20:]) / 20
+    mid = res * 0.88                                                      # giữa vùng, không test đáy 15 phiên
+    R2 = R + [dict(d=f"2099-01-{i + 1:02d}", o=mid, h=mid * 1.01, l=mid * 0.99, c=mid, v=v * 0.7) for i in range(16)]
+    p = analyse(R2, IDX)["plan"]
+    assert p["kind"] == "Chờ (Pha B)" and p["entry_lo"] is None and not p["take"]
+
+
+def test_failed_breakout_uses_first_close_above_and_never_falls_back_to_breakout():
+    R = load("TCH"); a = analyse(R, IDX); res = a["range"]["res"]
+    v = sum(y["v"] for y in R[-20:]) / 20
+    bar = lambda d, c: dict(d=d, o=c, h=c * 1.01, l=c * 0.99, c=c, v=v * 0.7)
+    # TCH đã ở trên trần từ SOS 04/11; nay đóng cửa lại dưới trần -> nền tính từ trước SOS, không phải từ 20/11
+    p = analyse(R + [bar("2099-01-02", res * 1.02), bar("2099-01-05", res * 0.975)], IDX)["plan"]
+    assert p["kind"].startswith("LPS mới") and p["entry_lo"] < res * 0.95 and p["targets"][0]["price"] >= 13.9 * 0.999
+    # thủng luôn nền trước cú vượt: không quay lại kế hoạch phá trần
+    p = analyse(R + [bar("2099-01-02", res * 1.02), bar("2099-01-05", res * 0.9)], IDX)["plan"]
+    assert not p["kind"].startswith("Phá trần") and "hỏng" in p["trigger"]
+
+
+def test_spring_test_targets_ceiling_before_cause_effect():
+    a = analyse(load("DIG"), IDX); p = a["plan"]; res = a["range"]["res"]
+    assert p["kind"] == "Spring/Test"
+    main = next(t for t in p["targets"] if t["k"] == p["main_target"])
+    assert abs(main["price"] - res) < res * 0.01                          # lời/lỗ tính tới trần vùng
+    assert all(t["price"] >= res * 0.99 for t in p["targets"] if t["ce"])  # Nhân–Quả nằm sau trần
