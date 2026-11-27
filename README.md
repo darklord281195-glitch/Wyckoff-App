@@ -31,7 +31,7 @@ copy ..\.env.example ..\.env
 | Quét thủ công + gửi Telegram | `scripts\scan.bat` |
 | Quét thử, không gửi | `scripts\scan.bat --dry-run` |
 | Chỉ một số mã / ngành | `scripts\scan.bat --symbols TCH,DPG` · `--groups ck,bds` |
-| Tự động: quét 15:30 + cảnh báo trong phiên 9:10–14:45, thứ 2–6 | `powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1` |
+| Tự động: tự mua thử nghiệm 14:05–14:29 + quét 15:30, thứ 2–6 (cảnh báo giá 5 phút/lần chỉ chạy khi gọi `intraday.bat --loop`) | `powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1` |
 | Cảnh báo trong phiên, chạy thử 1 lần | `scripts\intraday.bat --dry-run` |
 | Tạo lại kết quả các phiên cũ (không tải dữ liệu, không gửi Telegram) | `scripts\scan.bat --from 2026-11-01 --to 2026-11-19` |
 
@@ -96,6 +96,52 @@ Trang chi tiết mã có thêm **máy tính khối lượng**: nhập vốn và 
 - 🎯 mã watchlist đi vào vùng mua của kế hoạch (theo lần quét cuối ngày gần nhất)
 
 Mỗi cảnh báo gửi tối đa 1 lần/ngày. Đây chỉ là **chú ý**: luật bán vẫn theo giá đóng cửa, vì thủng cắt lỗ trong phiên rồi đóng cửa lại trên là chuyện thường.
+
+### Sổ lệnh thử nghiệm: tự mua lúc 14h10–14h29 (`intraday.auto_buy`, `core/paper.py`)
+
+**Mục đích:** app tự "mua" các mã đạt kịch bản mua đẹp, rồi tự bán đúng luật. Điểm mua sai thì app cắt lỗ. Sau vài chục lệnh, xem nhóm điều kiện nào thắng, nhóm nào thua, rồi chỉnh luật quét và skill. Đây không phải lệnh thật và không tính vào Danh mục.
+
+**Khi nào chạy:** lúc 14h10, 14h15, 14h20 và 14h25.
+
+**Quét gì:** mọi mã có GT TB20 ≥ `MIN_LIQ_BIL`. Mỗi mã được phân tích lại với nến hôm nay đang chạy.
+
+**Điều kiện mua đẹp** (`good_setup`), mã phải đạt đủ tất cả:
+- Kế hoạch có điểm mua: LPS, LPS mới, LPS sâu, Backup, Phá trần hoặc Spring/Test.
+- Giá nằm trong vùng mua. Đã vượt cận trên thì không mua đuổi.
+- Lời/lỗ ≥ 2.
+- Giá ở nửa trên biên độ phiên.
+- Riêng LPS và Backup: giá đóng cửa tăng so với hôm qua (phiên quay đầu).
+- KL đã khớp dưới 0,85 lần TB20. Riêng Phá trần: KL ≥ 0,85 × 1,5 lần TB20 và giá trên trần.
+- Nếu vừa có phiên bán mạnh: đã có ít nhất 2 phiên lùi với KL dưới TB20.
+
+**Khi một mã đạt:**
+- Ghi vào bảng `paper_trades` ở giá lúc kiểm tra, kèm cắt lỗ, mục tiêu và toàn bộ kế hoạch lúc mua.
+- Ghi thêm các yếu tố để phân tích sau: đèn, lời/lỗ, KL đã khớp / TB20, vị trí giá trong phiên.
+- Đèn đỏ vẫn mua, để đo xem mua lúc đèn đỏ có đáng không.
+- Mỗi mã mua tối đa 1 lần/ngày, và không mua chồng khi lệnh cũ của mã đó chưa bán hết.
+- Báo Telegram 📒 và hiện ở thẻ "Trong phiên hôm nay" trên trang chủ.
+
+**Bán theo luật** (`positions.simulate`, cùng luật với backtest):
+- Đóng cửa dưới cắt lỗ thì bán phiên sau, có tính T+2.
+- T1: bán 1/3 và dời cắt lỗ về giá vốn. T2: bán thêm 1/3.
+- Phần còn lại dời cắt lỗ theo đáy thấp nhất 10 phiên.
+- 20 phiên chưa tới T1 thì bán.
+
+Tin Telegram lúc 15:30 có mục "Sổ thử nghiệm" liệt kê các lệnh vừa cắt lỗ, chốt lời hoặc dời cắt lỗ trong ngày.
+
+**Phân tích:**
+- Trang **Kết quả** có thẻ "Sổ lệnh thử nghiệm". Thẻ thống kê % thắng, % cắt lỗ và R TB (đã trừ phí, thuế, trượt giá), chia theo loại kế hoạch, đèn, KL, lời/lỗ và vị trí giá.
+- Xem trên terminal: `.venv\Scripts\python -m app.core.paper`.
+- **Xem lại hằng tuần (16:00 thứ 6):** `scripts\weekly-review.bat` chạy Claude Code ở chế độ chỉ đọc. Claude đọc sổ thử nghiệm (`app.core.paper --review`), luật mua và skill, rồi ghi `logseview-YYYYMMDD.md` (lệnh thua và dấu hiệu bị bỏ qua, lệnh thắng, giả thuyết sửa luật) và gửi tóm tắt Telegram. Claude không tự sửa luật. Báo cáo tách 2 loại phát hiện:
+  - **Lỗi lệch so với luật skill**: sửa được ngay, sau khi bạn duyệt.
+  - **Đổi luật**: chỉ đề xuất khi cả sổ có ≥ 50 lệnh đã đóng, hoặc khi có ≥ 100 lệnh đã đóng để so giữa các nhóm (mỗi nhóm ≥ 30 lệnh). Đề xuất phải kiểm lại bằng backtest.
+  - Thứ 6 cuối mỗi tháng có thêm **tổng kết tháng**, so với các tháng trước và với backtest.
+  Bạn duyệt rồi mới sửa `good_setup`, `plan.py` hoặc skill.
+- Kết quả không được lưu sẵn mà tính lại từ phiên mua mỗi lần xem, nên đổi luật bán thì kết quả cũ cũng đổi theo.
+
+**Lưu ý:**
+- Cần task "Wyckoff Intraday" (14:05, `--loop --only-auto`, chỉ tự mua, không cảnh báo giá). Đăng ký bằng `scripts\register-task.ps1`.
+- Thử ngay mà không ghi, không gửi: `scripts\intraday.bat --dry-run --auto`.
 
 **Mã đang giống sơ đồ nào** (`wyckoff.classify`), hiện trên trang mã và tô sáng pha trên sơ đồ mẫu:
 - Tích lũy mẫu 1 (có Spring) / mẫu 2 (đáy nâng). Ở Pha A–B ghi "chưa rõ mẫu" vì Pha C mới quyết định.

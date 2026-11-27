@@ -135,3 +135,15 @@ export const STAGE_LABEL: Record<string, string> = {
 export const GROUP_LABEL: Record<string, string> = {
   ck: "Chứng khoán", bds: "Bất động sản", nh: "Ngân hàng", dtc: "Đầu tư công", thep: "Thép", wl: "Watchlist",
 };
+/** Cảnh báo trong phiên (/api/intraday): kind buy = app mua thử nghiệm lúc 14h10, stop/target/zone = cảnh báo giá. */
+export type IntradayAlert = { date: string; sym: string; kind: string; text: string | null; at: string | null };
+/** Thống kê một nhóm lệnh thử nghiệm; win/stop là % trên số lệnh đã đóng. */
+export type PaperStats = { n: number; closed: number; open: number; win: number | null; stop: number | null; avg_r: number | null };
+/** Một lệnh trong sổ thử nghiệm (/api/paper) kèm kết quả theo luật bán. */
+export type PaperItem = { id: number; d: string; at: string | null; sym: string; kind: string | null; entry_px: number; stop: number;
+  targets: number[]; light: string | null; rr: number | null; vx: number | null; close_pos: number | null; why: string | null;
+  status: string; R: number | null; exit_d: string | null; exit_why: string | null; hit_t1?: boolean; days: number;
+  events: { d: string; kind: string; text: string }[] };
+export type Paper = { summary: PaperStats; groups: { name: string; rows: (PaperStats & { label: string })[] }[]; items: PaperItem[] };
+/** Bản xem lại sổ thử nghiệm mới nhất (/api/paper/review): date = YYYYMMDD, summary = tóm tắt Telegram, report = markdown. */
+export type PaperReview = { date: string; summary: string | null; report: string } | null;
