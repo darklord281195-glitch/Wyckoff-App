@@ -1,4 +1,5 @@
 """Bán từng phần: ghi lịch sử, chặn bán quá số còn giữ, bán hết thì đóng lệnh với giá bình quân."""
+import json
 import warnings
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -48,6 +49,18 @@ def test_backup_restore_roundtrip(tmp_path):
     backup.restore(f, conn)
     assert conn.execute("SELECT qty FROM positions").fetchone()[0] == 100
     assert conn.execute("SELECT count(*) FROM sales").fetchone()[0] == 1
+    # sổ thử nghiệm được sao lưu; bản sao lưu từ máy khác có cột thừa / thiếu bảng thì vẫn khôi phục được
+    conn.execute("INSERT INTO paper_trades(d,sym,entry_px,stop) VALUES ('2026-11-27','MSN',68.9,66.6)"); conn.commit()
+    data = json.loads(backup.backup(conn, tmp_path / "bk").read_text(encoding="utf-8"))
+    data["positions"][0]["auto"] = 1                       # cột chỉ có ở DB máy khác
+    old = dict(data); old.pop("paper_trades")
+    (tmp_path / "old.json").write_text(json.dumps(old), encoding="utf-8")
+    backup.restore(tmp_path / "old.json", conn)
+    assert conn.execute("SELECT count(*) FROM paper_trades").fetchone()[0] == 1   # không bị xóa
+    conn.execute("DELETE FROM paper_trades"); conn.commit()
+    (tmp_path / "new.json").write_text(json.dumps(data), encoding="utf-8")
+    backup.restore(tmp_path / "new.json", conn)
+    assert conn.execute("SELECT sym FROM paper_trades").fetchone()[0] == "MSN"
 
 
 def test_scan_skips_day_without_session(monkeypatch):
