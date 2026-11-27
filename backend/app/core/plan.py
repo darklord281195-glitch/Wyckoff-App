@@ -11,6 +11,8 @@ REVERSAL = 3          # P&F 3 ô đảo chiều (chuẩn Wyckoff)
 TIME_STOP = 20        # số phiên chờ tối đa sau khi vào mà giá chưa chạm T1
 LPS_HOLD = 2          # số phiên giá phải giữ trên đáy LPS thì LPS mới coi là xác nhận
 TRAIL = 10            # sau T1: dời cắt lỗ lên đáy thấp nhất 10 phiên gần nhất
+# loại kế hoạch có các bước mua (kịch bản mua đẹp); loại khác ("Không vào", "Chờ (Pha B)", "Đang tăng") không mua
+BUY_KINDS = ("LPS", "LPS mới (vượt trần hỏng)", "LPS sâu (vượt trần hỏng)", "Backup", "Phá trần (SOS)", "Spring/Test")
 
 
 def _mean(xs):
@@ -317,7 +319,7 @@ def failed_breakout(R, res: float, look: int = 5, base: int = 7) -> tuple[float,
 def _scenario(plan: dict, R, res: float):
     """Thêm vào kế hoạch: ngưỡng KL bằng số (triệu cp), các bước mua chia 1/3, điều kiện hủy và cảnh báo phiên bán mạnh."""
     kind = plan["kind"]
-    if not plan["entry_lo"] or kind not in ("LPS", "LPS mới (vượt trần hỏng)", "LPS sâu (vượt trần hỏng)", "Backup", "Phá trần (SOS)", "Spring/Test"):
+    if not plan["entry_lo"] or kind not in BUY_KINDS:
         plan.update(steps=[], cancel="", selloff=None, timing="")
         return
     v20 = _mean([x["v"] for x in R[-21:-1]])

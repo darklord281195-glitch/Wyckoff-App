@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS telegram_sent (        -- phiên đã gửi Telegram:
   date TEXT PRIMARY KEY, at TEXT DEFAULT (datetime('now', 'localtime'))
 );
 CREATE TABLE IF NOT EXISTS intraday_alerts (      -- cảnh báo giá trong phiên đã gửi: mỗi (ngày, mã, loại) 1 lần
-  date TEXT NOT NULL, sym TEXT NOT NULL, kind TEXT NOT NULL, PRIMARY KEY (date, sym, kind)
+  date TEXT NOT NULL, sym TEXT NOT NULL, kind TEXT NOT NULL, text TEXT, at TEXT, PRIMARY KEY (date, sym, kind)
 );
 CREATE TABLE IF NOT EXISTS foreign_trade (        -- khối ngoại theo phiên, giá trị tỷ đồng (core/foreign.py)
   sym TEXT NOT NULL, d TEXT NOT NULL, buy REAL, sell REAL, net REAL, net_vol REAL, room REAL, total_room REAL,
@@ -51,6 +51,13 @@ CREATE TABLE IF NOT EXISTS fin_quarter (          -- BCTC quý (core/fundamental
 CREATE TABLE IF NOT EXISTS fin_meta (             -- lần tải BCTC gần nhất + P/E theo ngày
   sym TEXT PRIMARY KEY, fetched TEXT, pe REAL, mcap REAL, pe_date TEXT
 );
+CREATE TABLE IF NOT EXISTS paper_trades (         -- sổ lệnh thử nghiệm: app tự "mua" lúc 14h10–14h29 khi đạt kịch bản mua đẹp
+  id INTEGER PRIMARY KEY, d TEXT NOT NULL, at TEXT, sym TEXT NOT NULL, kind TEXT,
+  entry_px REAL NOT NULL, stop REAL NOT NULL, targets TEXT,   -- targets: JSON [giá T1, T2, ...]; kết quả tính bằng positions.simulate
+  light TEXT, rr REAL, vx REAL, close_pos REAL,   -- đèn, lời/lỗ kế hoạch, KL đã khớp / TB20, vị trí giá trong biên độ phiên (0–1)
+  why TEXT, plan TEXT,                             -- plan: JSON kế hoạch lúc mua (để phân tích lại điều kiện)
+  UNIQUE (d, sym)
+);
 CREATE TABLE IF NOT EXISTS watchlist (
   sym TEXT PRIMARY KEY, note TEXT, added TEXT DEFAULT (date('now'))
 );
@@ -80,6 +87,11 @@ def _migrate(conn):
     if "stop0" not in cols:
         conn.execute("ALTER TABLE positions ADD COLUMN stop0 REAL")
         conn.execute("UPDATE positions SET stop0 = stop WHERE stop0 IS NULL")
+        conn.commit()
+    ia = {r[1] for r in conn.execute("PRAGMA table_info(intraday_alerts)")}
+    if "text" not in ia:                   # nội dung + giờ báo, để trang chủ hiện lại các cảnh báo trong phiên
+        conn.execute("ALTER TABLE intraday_alerts ADD COLUMN text TEXT")
+        conn.execute("ALTER TABLE intraday_alerts ADD COLUMN at TEXT")
         conn.commit()
     if "replay" not in {r[1] for r in conn.execute("PRAGMA table_info(signals)")}:
         # tín hiệu có trước cột này không biết là báo thật hay tạo lại: coi là tạo lại để không làm đẹp kết quả

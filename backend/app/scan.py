@@ -20,6 +20,7 @@ from . import notify, charts, backup
 from .core import risk as risk_mod
 from .core import sectors as sectors_mod
 from .core import fundamentals as fund
+from .core import paper
 
 LIGHT_ICON = {"green": "🟢", "yellow": "🟡", "red": "🔴", "?": "⚪"}
 
@@ -150,6 +151,13 @@ def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log
              len(results), skipped, scan_date)
 
     msg = format_message(scan_date, market, all_sigs, results, errors, hidden, kinds)
+    if not at:                    # sổ lệnh thử nghiệm (app tự mua 14h10): luật bán làm gì hôm nay
+        try:
+            ev = paper.events_on(conn, scan_date)
+            if ev:
+                msg += "\n\n📒 Sổ thử nghiệm (tự bán theo luật):\n" + "\n".join("  " + x for x in ev)
+        except Exception as e:
+            log.warning("Không tính được sổ thử nghiệm: %s", e)
     if not at:                    # cảnh báo rủi ro danh mục (vốn, ngưỡng ở trang Danh mục)
         try:
             pr = risk_mod.portfolio_risk(risk_mod.open_positions(conn), risk_mod.get_settings(conn),

@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .db import connect
+from .config import LOG_DIR
 from .core.data import get_ohlcv, fetch_remote, add_atc
 from .core.wyckoff import analyse, trim, ANALYSIS_DAYS
 from .core.market import traffic_light
@@ -15,6 +16,7 @@ from .core import journal as journal_mod
 from .core import forward as forward_mod
 from .core import fundamentals as fund
 from .core import flow as flow_mod
+from .core import paper as paper_mod
 from .universe import GROUP_NAMES, INDEX, group_of, watchlist, listing, sectors
 from . import scan as scan_mod
 from .core.signals import PRIORITY
@@ -321,6 +323,31 @@ def journal():
     bt = conn.execute("SELECT avg_r FROM backtest_stats WHERE plan='Tất cả'").fetchone()
     return journal_mod.build(journal_mod.all_positions(conn), journal_mod.sales_by_position(conn), bars_of, plan_at,
                              bt[0] if bt else None)
+
+
+@app.get("/api/intraday")
+def intraday(date: str | None = None):
+    """Cảnh báo trong phiên của một ngày (mặc định hôm nay): mua thử nghiệm 14h10 (buy) và cảnh báo giá."""
+    d = date or dt.datetime.now(VN_TZ).date().isoformat()
+    return [dict(r) for r in conn.execute(
+        "SELECT date, sym, kind, text, at FROM intraday_alerts WHERE date=? ORDER BY at DESC, sym", (d,))]
+
+
+@app.get("/api/paper")
+def paper_get():
+    """Sổ lệnh thử nghiệm: từng lệnh app tự mua + kết quả theo luật bán, tổng hợp theo nhóm điều kiện."""
+    return paper_mod.score(conn)
+
+
+@app.get("/api/paper/review")
+def paper_review():
+    """Bản xem lại sổ thử nghiệm mới nhất (scripts/weekly-review): tóm tắt + báo cáo đầy đủ (markdown)."""
+    files = sorted(LOG_DIR.glob("review-2*.md"))
+    if not files:
+        return None
+    tg = LOG_DIR / "review-telegram.txt"
+    return dict(date=files[-1].stem[7:], report=files[-1].read_text(encoding="utf-8"),
+                summary=tg.read_text(encoding="utf-8") if tg.exists() else None)
 
 
 @app.get("/api/portfolio/risk")

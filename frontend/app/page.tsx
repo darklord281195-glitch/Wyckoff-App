@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import SectorCard from "@/components/SectorCard";
+import IntradayCard from "@/components/IntradayCard";
 import { api, Market, Row, Signal, GROUP_LABEL, STAGE_LABEL, fullDate, num, pct, price } from "@/lib/api";
 
 type SortKey = "sym" | "stage" | "chg" | "rs20" | "rs60" | "liq" | "dist" | "ready" | "rr" | "fx10";
@@ -126,6 +127,8 @@ export default function Home() {
         Đang xem phiên cũ {fullDate(date)}: bảng, đèn và tín hiệu là kết quả quét của phiên này.
         <button className="btn" onClick={() => pick(dates[0])}>Về phiên mới nhất</button>
       </div>}
+
+      {!old && <IntradayCard />}
 
       <section className="card">
         <h2>Tín hiệu phiên {date ? fullDate(date) : ""}</h2>
