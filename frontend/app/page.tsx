@@ -6,10 +6,11 @@ import SectorCard from "@/components/SectorCard";
 import IntradayCard from "@/components/IntradayCard";
 import { api, Market, Row, Signal, GROUP_LABEL, STAGE_LABEL, fullDate, num, pct, price } from "@/lib/api";
 
-type SortKey = "sym" | "stage" | "chg" | "rs20" | "rs60" | "liq" | "dist" | "ready" | "rr" | "fx10" | "banker";
+type SortKey = "sym" | "sector" | "stage" | "chg" | "rs20" | "rs60" | "liq" | "dist" | "ready" | "rr" | "fx10" | "banker";
 /** Giải thích từng cột (hiện khi rê chuột vào tên cột) */
 const TIPS: Record<string, string> = {
   "Mã": "Mã cổ phiếu và sàn niêm yết.",
+  "Ngành": "Ngành ICB của mã. Bấm tên ngành để lọc bảng theo ngành đó (giống ô chọn Ngành ICB).",
   "Pha": "Pha Wyckoff hiện tại. B/C: đang tích lũy trong vùng; sát trần: giá cách cận trên vùng ≤ 6%; D: đã bứt khỏi vùng (SOS); dưới hỗ trợ: thủng đáy vùng. Chữ nhỏ bên cạnh là sự kiện gần nhất (ST, Spring, LPS…); dấu * = đợt giảm trước đó yếu.",
   "Giá": "Giá đóng cửa phiên quét gần nhất (đồng).",
   "%": "Thay đổi giá so với phiên trước.",
@@ -102,6 +103,8 @@ export default function Home() {
     }, 4000);
   };
 
+  /** ngành ICB của mã (rỗng nếu chưa có trong danh sách niêm yết) */
+  const secOf = (r: Row) => sectorList[r.groups.find((g) => g.startsWith("icb:")) ?? ""] ?? "";
   const view = useMemo(() => {
     const v = q ? rows.filter((r) => r.sym.startsWith(q)) : rows.filter((r) =>   // đang tìm mã: bỏ qua các bộ lọc khác
       (group === "all" || r.groups.includes(group)) &&
@@ -110,17 +113,17 @@ export default function Home() {
         : stage === "test" ? r.test === "ST"
         : stage === "nearsc" ? r.sc != null && Math.abs(r.sc) <= 5 && !r.test : r.stage === stage)) && r.liq >= minLiq);
     const val = (r: Row): number | string =>
-      sort.k === "sym" ? r.sym : sort.k === "stage" ? STAGE_ORDER[r.stage] * 1000 - (r.rs20 ?? -99) : (r[sort.k] ?? -1e9);
+      sort.k === "sym" ? r.sym : sort.k === "sector" ? (secOf(r) || "￿") + r.sym : sort.k === "stage" ? STAGE_ORDER[r.stage] * 1000 - (r.rs20 ?? -99) : (r[sort.k] ?? -1e9);
     return v.sort((a, b) => {
       const x = val(a), y = val(b);
       const c = x < y ? -1 : x > y ? 1 : 0;
       return sort.desc ? -c : c;
     });
-  }, [rows, group, stage, minLiq, sort, q]);
+  }, [rows, group, stage, minLiq, sort, q, sectorList]);
 
   const th = (k: SortKey, label: string, n = false) => (
     <th className={n ? "n" : undefined} title={TIPS[label] + "\n(Bấm để sắp xếp)"}
-      onClick={() => setSort((s) => ({ k, desc: s.k === k ? !s.desc : k !== "sym" && k !== "stage" }))}>
+      onClick={() => setSort((s) => ({ k, desc: s.k === k ? !s.desc : k !== "sym" && k !== "stage" && k !== "sector" }))}>
       <span className="tip">{label}</span>{sort.k === k ? (sort.desc ? " ▼" : " ▲") : ""}
     </th>
   );
@@ -228,7 +231,7 @@ export default function Home() {
           <table className="right">
             <thead>
               <tr>
-                {th("sym", "Mã")}{th("stage", "Pha")}{plain("Giá", true)}{th("chg", "%", true)}{th("ready", "Điểm", true)}
+                {th("sym", "Mã")}{th("sector", "Ngành")}{th("stage", "Pha")}{plain("Giá", true)}{th("chg", "%", true)}{th("ready", "Điểm", true)}
                 {plain("Vùng vào", true)}{plain("Cắt lỗ", true)}{th("rr", "Lời/lỗ", true)}
                 {th("dist", "So trần", true)}{th("rs20", "RS20", true)}{th("rs60", "RS60", true)}{th("liq", "GT (tỷ)", true)}{th("fx10", "NN 10p (tỷ)", true)}{th("banker", "Banker", true)}{plain("Ghi chú")}
               </tr>
@@ -238,6 +241,12 @@ export default function Home() {
                 <tr key={r.sym}>
                   <td title={r.name ?? ""}><Link href={`/symbol/${r.sym}${at}`}><b>{r.sym}</b></Link>{" "}
                     <span className="muted" style={{ fontSize: 11.5 }}>{r.floor ?? ""}</span></td>
+                  <td style={{ maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", fontSize: 13 }} title={secOf(r)}>
+                    {secOf(r)
+                      ? <button onClick={() => setGroup(r.groups.find((g) => g.startsWith("icb:"))!)} title={`${secOf(r)} · bấm để lọc ngành này`}
+                          style={{ border: 0, background: "none", padding: 0, cursor: "pointer", color: "var(--muted)", font: "inherit", maxWidth: "100%",
+                            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{secOf(r)}</button>
+                      : <span className="muted">–</span>}</td>
                   <td><span className={`pill ${r.stage}`}>{r.tag}</span>
                     {r.test && <span className="muted" style={{ fontSize: 11.5 }}
                       title={r.test === "Spring" ? "Thủng đáy thấp nhất trước đó rồi đóng cửa lại trên đáy vùng (Pha C) trong 15 phiên" : "Quay về chạm/gần đáy vùng nhưng không thủng đáy cũ (ST) trong 15 phiên"}>
