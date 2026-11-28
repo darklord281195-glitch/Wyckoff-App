@@ -77,6 +77,15 @@ export type SectorRow = { icb: string; name: string; n: number; rs20: number | n
 /** Một chiến lược trong backtest danh mục: % tổng, % năm, sụt giảm lớn nhất, Sharpe, % thời gian có vị thế. */
 export type PfMetric = { total: number; cagr: number; mdd: number; sharpe: number | null; exposure: number;
   yearly: Record<string, number>; trades?: number };
+/** Một điều kiện của "Kịch bản mua đẹp": ok = đạt / chưa đạt / null = không áp dụng cho loại kế hoạch này. */
+export type CheckItem = { key: string; label: string; ok: boolean | null; detail: string; why: string };
+/** Bảng kiểm tra trước khi mua (/api/symbols/{mã}/check). verdict: buy / half (đèn vàng) / red (đèn đỏ) / wait / no. */
+export type BuyCheck = { sym: string; at: string; d: string; live: boolean; price: number; chg: number | null; light: string;
+  kind: string | null; entry_lo: number | null; entry_hi: number | null; stop: number | null; rr: number | null; t1: number | null;
+  items: CheckItem[]; verdict: "buy" | "half" | "red" | "wait" | "no"; text: string; note: string;
+  size: { factor: number; risk_money: number; shares: number; step1: number; value: number; stop_pct: number;
+    heat: number; heat_after: number; max_heat: number } | null;
+  positions: { n: number; max_pos: number } };
 /** Cách chia vốn so với mua-giữ: worst = hơn/kém (điểm %/năm) ở giai đoạn tệ hơn trong 2019–23 / 2024–26. */
 export type PfRank = { k: string; worst: number; both: boolean; mdd_better: boolean };
 export type PortfolioRun = { created: string;

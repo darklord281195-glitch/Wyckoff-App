@@ -50,10 +50,11 @@ export default function SymbolSearch({ current }: { current?: string }) {
   return (
     <div ref={box} style={{ position: "relative" }}>
       <input type="search" placeholder="🔍 Tìm mã khác" value={q} autoComplete="off" aria-label="Tìm mã cổ phiếu"
-        aria-expanded={open && hits.length > 0} role="combobox" style={{ width: 190 }}
+        aria-expanded={open && hits.length > 0} aria-controls="symbol-search-list" role="combobox"
+        style={{ width: 190, maxWidth: "100%" }}
         onChange={(e) => { setQ(e.target.value); setOpen(true); setHi(0); }} onFocus={() => setOpen(true)} onKeyDown={onKey} />
       {open && hits.length > 0 && (
-        <ul role="listbox" className="search-pop">
+        <ul id="symbol-search-list" role="listbox" className="search-pop">
           {hits.map((x, i) => (
             <li key={x.sym} role="option" aria-selected={i === hi} className={i === hi ? "on" : ""}
               onMouseEnter={() => setHi(i)} onMouseDown={(e) => { e.preventDefault(); go(x.sym); }}>

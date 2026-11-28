@@ -19,6 +19,7 @@ from .core import flow as flow_mod
 from .core import paper as paper_mod
 from .universe import GROUP_NAMES, INDEX, group_of, watchlist, listing, sectors
 from . import scan as scan_mod
+from . import intraday as intraday_mod
 from .core.signals import PRIORITY
 from .backtest import BUY_FEE, SELL_FEE
 
@@ -214,6 +215,20 @@ def symbol(code: str, at: dt.date | None = None, start: dt.date | None = Query(N
                 ohlcv=full,
                 analysis=res, signals=signals(120, code, at), at=at, start=start, foreign=fx, foreign_error=fx_err, plan_stats=dict(st) if st else None,
                 scenario_stats=dict(light=light, rows=sc), fundamentals=fundamentals, in_watchlist=code in watchlist(conn))
+
+
+@app.get("/api/symbols/{code}/check")
+def symbol_check(code: str):
+    """Bảng kiểm tra trước khi mua (14h15–14h29): từng điều kiện kịch bản mua đẹp theo nến đang chạy, kết luận,
+    khối lượng gợi ý theo vốn / % rủi ro / đèn và tổng rủi ro danh mục sau khi mua."""
+    try:
+        out = intraday_mod.live_check(conn, code)
+    except Exception as e:                       # lỗi mạng / thiếu dữ liệu: báo rõ, không làm hỏng trang mã
+        raise HTTPException(502, str(e))
+    pr = _portfolio_risk()
+    out["size"] = risk_mod.size_for(risk_mod.get_settings(conn), out["light"], out["price"], out["stop"], pr["heat"])
+    out["positions"] = dict(n=pr["n"], max_pos=pr["max_pos"])
+    return out
 
 
 @app.get("/api/symbols/{code}/hourly")

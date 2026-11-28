@@ -48,36 +48,120 @@ def check(bar, stop=None, target=None, plan=None):
     return out
 
 
+def checklist(plan: dict | None, R: list[dict], res: float | None = None) -> list[dict]:
+    """Từng điều kiện của "Kịch bản mua đẹp" (luật skill wyckoff) với nến hôm nay R[-1], theo thứ tự kiểm tra:
+    [dict(key, label, ok, detail, why)]; ok = True / False / None (không áp dụng cho loại kế hoạch này);
+    why = lý do không đạt (good_setup báo mục False đầu tiên). Một nguồn luật cho tự mua thử nghiệm và bảng kiểm tra."""
+    p, items = plan or {}, []
+
+    def add(key, label, ok, detail, why=""):
+        items.append(dict(key=key, label=label, ok=ok, detail=detail, why=why))
+
+    has = p.get("kind") in BUY_KINDS and bool(p.get("entry_lo"))
+    add("plan", "Kế hoạch có điểm mua", has, p.get("kind") or "–", f"kế hoạch {p.get('kind') or '–'} không có điểm mua")
+    if not has:
+        return items
+    b, y = R[-1], R[-2]
+    v20 = sum(x["v"] for x in R[-21:-1]) / 20
+    lo, hi = p["entry_lo"], p["entry_hi"]
+    add("zone", "Giá trong vùng mua", lo <= b["c"] <= hi,
+        f"giá {_p(b['c'])} · vùng {_p(lo)}–{_p(hi)}" + (" · đã vượt cận trên: không mua đuổi" if b["c"] > hi else
+                                                     " · chưa về tới vùng" if b["c"] < lo else ""),
+        f"giá {_p(b['c'])} ngoài vùng mua {_p(lo)}–{_p(hi)}")
+    rr = p.get("rr") or 0
+    add("rr", "Lời/lỗ ≥ 2", rr >= 2, f"lời/lỗ {num(rr, 1)}", f"lời/lỗ {num(rr, 1)} < 2")
+    rng = b["h"] - b["l"]
+    pos = (b["c"] - b["l"]) / rng if rng > 0 else 1.0
+    add("upper", "Giá ở nửa trên biên độ phiên", pos >= 0.5,
+        f"{round(pos * 100)}% biên độ (thấp {_p(b['l'])} – cao {_p(b['h'])})", "giá ở nửa dưới biên độ phiên")
+    if p["kind"] in TURN:
+        add("turn", "Phiên quay đầu (giá tăng so với hôm qua)", b["c"] > y["c"], f"hôm qua {_p(y['c'])} → {_p(b['c'])}",
+            "chưa phải phiên quay đầu (giá chưa tăng so với hôm qua)")
+    else:
+        add("turn", "Phiên quay đầu", None, f"không cần với {p['kind']}")
+    vx = b["v"] / v20 if v20 else 9
+    vol = f"KL x{num(vx, 2)} TB20 ({num(b['v'], 2)} / {num(v20, 2)} triệu cp)"
+    if p["kind"] == "Phá trần (SOS)":
+        add("above", "Giá trên trần", not res or b["c"] > res, f"trần {_p(res)}" if res else "–",
+            f"chưa vượt trần {_p(res)}" if res else "")
+        add("vol", f"KL ≥ x{num(VOL_SO_FAR * 1.5, 2)} TB20 (phiên phá trần)", vx >= VOL_SO_FAR * 1.5, vol,
+            f"KL x{num(vx, 2)} chưa đủ lớn cho phiên phá trần")
+    else:
+        add("vol", f"KL đã khớp < x{num(VOL_SO_FAR, 2)} TB20 (cung cạn)", vx < VOL_SO_FAR, vol,
+            f"KL x{num(vx, 2)} đã cao (cần dưới x{num(VOL_SO_FAR, 2)} lúc này)")
+    if p.get("selloff"):          # sau phiên bán mạnh: cần ≥ 2 phiên lùi KL < TB20, tính cả hôm nay
+        after = [x for x in R if x["d"] > p["selloff"]]
+        ok = len(after) >= 2 and not any(x["v"] >= v20 for x in after)
+        sd = f"{p['selloff'][8:]}/{p['selloff'][5:7]}"
+        add("selloff", "Đủ 2 phiên lùi KL thấp sau phiên bán mạnh", ok,
+            f"bán mạnh {sd} · sau đó {len(after)} phiên, {sum(x['v'] < v20 for x in after)} phiên KL dưới TB20",
+            f"vừa bán mạnh {sd}, chưa đủ 2 phiên lùi KL thấp")
+    else:
+        add("selloff", "Không vừa có phiên bán mạnh", None, "3 phiên gần nhất không có phiên bán mạnh")
+    return items
+
+
 def good_setup(plan: dict | None, R: list[dict], res: float | None = None) -> tuple[bool, str]:
     """Mã có đạt "Kịch bản mua đẹp" ngay lúc này không (luật của skill wyckoff). R[-1] = nến hôm nay đang chạy.
     Trả (đạt?, lý do không đạt / mô tả ngắn khi đạt)."""
-    p = plan or {}
-    if p.get("kind") not in BUY_KINDS or not p.get("entry_lo"):
-        return False, f"kế hoạch {p.get('kind') or '–'} không có điểm mua"
-    b, y = R[-1], R[-2]
+    bad = next((x for x in checklist(plan, R, res) if x["ok"] is False), None)
+    if bad:
+        return False, bad["why"]
     v20 = sum(x["v"] for x in R[-21:-1]) / 20
-    if not p["entry_lo"] <= b["c"] <= p["entry_hi"]:
-        return False, f"giá {_p(b['c'])} ngoài vùng mua {_p(p['entry_lo'])}–{_p(p['entry_hi'])}"
-    if (p.get("rr") or 0) < 2:
-        return False, f"lời/lỗ {num(p.get('rr') or 0, 1)} < 2"
-    rng = b["h"] - b["l"]
-    if rng > 0 and (b["c"] - b["l"]) / rng < 0.5:
-        return False, "giá ở nửa dưới biên độ phiên"
-    if p["kind"] in TURN and b["c"] <= y["c"]:
-        return False, "chưa phải phiên quay đầu (giá chưa tăng so với hôm qua)"
-    vx = b["v"] / v20 if v20 else 9
-    if p["kind"] == "Phá trần (SOS)":
-        if res and b["c"] <= res:
-            return False, f"chưa vượt trần {_p(res)}"
-        if vx < VOL_SO_FAR * 1.5:
-            return False, f"KL x{num(vx, 1)} chưa đủ lớn cho phiên phá trần"
-    elif vx >= VOL_SO_FAR:
-        return False, f"KL x{num(vx, 1)} đã cao (cần dưới x{num(VOL_SO_FAR, 2)} lúc này)"
-    if p.get("selloff"):          # sau phiên bán mạnh: cần ≥ 2 phiên lùi KL < TB20, tính cả hôm nay
-        after = [x for x in R if x["d"] > p["selloff"]]
-        if len(after) < 2 or any(x["v"] >= v20 for x in after):
-            return False, f"vừa bán mạnh {p['selloff'][8:]}/{p['selloff'][5:7]}, chưa đủ 2 phiên lùi KL thấp"
-    return True, f"{p['kind']} · KL x{num(vx, 1)} · lời/lỗ {num(p['rr'], 1)}"
+    vx = R[-1]["v"] / v20 if v20 else 9
+    return True, f"{plan['kind']} · KL x{num(vx, 1)} · lời/lỗ {num(plan['rr'], 1)}"
+
+
+def verdict(items: list[dict], light: str | None, price: float, plan: dict | None) -> tuple[str, str]:
+    """Kết luận bảng kiểm tra: (mã, câu). no = không vào (không có điểm mua, lời/lỗ < 2, đã vượt cận trên vùng mua);
+    wait = chờ (điều kiện còn lại chưa đạt); red = đạt nhưng đèn đỏ (luật rủi ro: không mở lệnh mới);
+    half = nên vào, ½ rủi ro (đèn vàng); buy = nên vào."""
+    p = plan or {}
+    bad = [x for x in items if x["ok"] is False]
+    hard = [x for x in bad if x["key"] in ("plan", "rr") or (x["key"] == "zone" and price > (p.get("entry_hi") or 0))]
+    if hard:
+        return "no", "Không vào: " + hard[0]["why"]
+    if bad:
+        return "wait", "Chờ: " + bad[0]["why"]
+    if light == "red":
+        return "red", "Đạt kịch bản mua đẹp, nhưng đèn đỏ: không mở lệnh mới (luật rủi ro theo đèn)"
+    if light == "yellow":
+        return "half", "Nên vào bước 1, với ½ mức rủi ro (đèn vàng)"
+    return "buy", "Nên vào bước 1 (mua 1/3)"
+
+
+def live_check(conn, sym: str, fetch=fetch_remote, now: dt.datetime | None = None) -> dict:
+    """Bảng kiểm tra trước khi mua cho một mã: nến hôm nay đang chạy (ngoài giờ: nến ngày gần nhất) của mã và VNINDEX,
+    phân tích lại như auto_buy, rồi checklist + kết luận. Lỗi mạng -> RuntimeError."""
+    now = now or dt.datetime.now(VN)
+    sym = sym.upper()
+    bar, ibar = fetch(sym, 7), fetch(INDEX, 7)
+    if not bar or not ibar:
+        raise RuntimeError(f"{sym}: chưa lấy được nến hôm nay")
+    bar, ibar = bar[-1], ibar[-1]
+    row = conn.execute("SELECT data FROM scan_results WHERE sym=? AND date<=? ORDER BY date DESC LIMIT 1",
+                       (INDEX, bar["d"])).fetchone()
+    breadth = (json.loads(row[0]) or {}).get("breadth") if row else None
+    IDX = trim(_with_today(conn, INDEX, ibar, 600))
+    light = traffic_light(analyse(IDX), breadth)["light"]
+    R = _with_today(conn, sym, bar)
+    if len(R) < 120:
+        raise RuntimeError(f"{sym}: chưa đủ dữ liệu lịch sử")
+    a = analyse(trim(R), IDX, (listing(conn).get(sym) or {}).get("floor") or "UPCOM") or {}
+    p = a.get("plan") or {}
+    items = checklist(p, R, (a.get("range") or {}).get("res"))
+    code, text = verdict(items, light, bar["c"], p)
+    today = now.date().isoformat()
+    t = now.time()
+    live = bar["d"] == today and now.weekday() < 5 and dt.time(9, 0) <= t <= dt.time(14, 45)
+    note = ("Phiên đang chạy: KL so với TB20 chỉ chuẩn trong 14h10–14h29 (lúc đó đã khớp ~85–90% KL ngày)."
+            if live and not AUTO[0] <= t <= AUTO[1] else
+            "Đúng giờ đặt lệnh: đặt LO 14h15–14h29; giá ATC có thể khác lúc này." if live else
+            f"Phiên {bar['d'][8:]}/{bar['d'][5:7]} đã đóng: kết quả theo giá đóng cửa, để chuẩn bị cho phiên tới.")
+    return dict(sym=sym, at=f"{now:%H:%M}", d=bar["d"], live=live, price=bar["c"],
+                chg=round((bar["c"] / R[-2]["c"] - 1) * 100, 2) if len(R) > 1 and R[-2]["c"] else None,
+                light=light, kind=p.get("kind"), entry_lo=p.get("entry_lo"), entry_hi=p.get("entry_hi"), stop=p.get("stop"),
+                rr=p.get("rr"), t1=(p.get("targets") or [{}])[0].get("price"), items=items, verdict=code, text=text, note=note)
 
 
 def _today_bars(syms, today, fetch, workers=6):

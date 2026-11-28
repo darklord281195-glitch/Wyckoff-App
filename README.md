@@ -97,6 +97,14 @@ Trang chi tiết mã có thêm **máy tính khối lượng**: nhập vốn và 
 
 Mỗi cảnh báo gửi tối đa 1 lần/ngày. Đây chỉ là **chú ý**: luật bán vẫn theo giá đóng cửa, vì thủng cắt lỗ trong phiên rồi đóng cửa lại trên là chuyện thường.
 
+### Kiểm tra trước khi mua (thẻ trên trang mã, dùng lúc 14h15–14h29, cả trên điện thoại)
+Thẻ đầu trang mã (khi kế hoạch có vùng mua và đang xem phiên mới nhất). App lấy nến hôm nay đang chạy của mã và VNINDEX, phân tích lại như lúc tự mua thử nghiệm, rồi hiện từng điều kiện của **kịch bản mua đẹp** với ✓ / ✗ / – (không áp dụng):
+- có điểm mua · giá trong vùng mua (vượt cận trên = không mua đuổi) · lời/lỗ ≥ 2 · giá ở nửa trên biên độ phiên · phiên quay đầu (LPS, Backup) · KL đã khớp < 0,85 lần TB20 (Phá trần: trên trần và KL ≥ 0,85 × 1,5 lần) · đủ 2 phiên lùi KL thấp nếu vừa có phiên bán mạnh.
+- **Kết luận**: Nên vào (bước 1 = 1/3) · Nên vào với ½ rủi ro (đèn vàng) · Đạt nhưng đèn đỏ: không mở lệnh mới · Chờ (lý do đầu tiên chưa đạt) · Không vào (không có điểm mua, lời/lỗ < 2, đã vượt cận trên).
+- **Khối lượng gợi ý** theo vốn, % rủi ro/lệnh (thẻ Rủi ro danh mục) × hệ số đèn, khoảng cắt lỗ, lô 100; bước 1 = 1/3; tổng rủi ro danh mục sau khi mua đủ so với ngưỡng.
+- Tự kiểm tra lại mỗi phút trong giờ giao dịch; có nút **Kiểm tra lại**. Ngoài giờ thì theo nến ngày gần nhất (để chuẩn bị cho phiên tới). KL so với TB20 chỉ chuẩn trong 14h10–14h29.
+- Cùng một nguồn luật với sổ lệnh thử nghiệm (`intraday.checklist`, `good_setup` gọi lại nó), API `GET /api/symbols/{mã}/check`.
+
 ### Sổ lệnh thử nghiệm: tự mua lúc 14h10–14h29 (`intraday.auto_buy`, `core/paper.py`)
 
 **Mục đích:** app tự "mua" các mã đạt kịch bản mua đẹp, rồi tự bán đúng luật. Điểm mua sai thì app cắt lỗ. Sau vài chục lệnh, xem nhóm điều kiện nào thắng, nhóm nào thua, rồi chỉnh luật quét và skill. Đây không phải lệnh thật và không tính vào Danh mục.

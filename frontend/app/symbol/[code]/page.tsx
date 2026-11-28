@@ -9,6 +9,7 @@ import PlanCard from "@/components/PlanCard";
 import ForeignCard from "@/components/ForeignCard";
 import FundamentalsCard from "@/components/FundamentalsCard";
 import SymbolSearch from "@/components/SymbolSearch";
+import PreBuyCheck from "@/components/PreBuyCheck";
 import WyckoffSchematic, { WYCKOFF_NOTES, DIST_NOTES } from "@/components/WyckoffSchematic";
 
 const STAGE_HINT: Record<string, string> = {
@@ -89,6 +90,8 @@ export default function SymbolPage({ params }: { params: Promise<{ code: string 
         {" "}Nến sau đó trên biểu đồ là diễn biến thực tế.
         <button className="btn" onClick={() => pickDay(null)}>Về phiên mới nhất</button>
       </div>}
+
+      {!at && u === "k" && a?.plan?.entry_lo != null && <PreBuyCheck sym={d.sym} />}
 
       <section className="card"><WyckoffChart sym={d.sym} data={d.ohlcv} analysis={a} unit={u} stats={d.plan_stats}
         sel={at ? { from: start ?? at, to: at } : null} onRange={(f, t) => pick(t, f)} /></section>

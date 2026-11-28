@@ -60,6 +60,22 @@ def open_positions(conn) -> list[dict]:
     return out
 
 
+def size_for(settings: dict, light: str | None, price: float, stop: float | None, heat: float = 0.0) -> dict | None:
+    """Khối lượng gợi ý cho một lệnh mới: rủi ro = vốn × % rủi ro/lệnh × hệ số đèn; số cp = rủi ro ÷ (giá − cắt lỗ),
+    làm tròn lô 100, không quá vốn; bước 1 = 1/3. heat: tổng rủi ro mở hiện tại (% vốn) -> heat_after sau khi mua đủ."""
+    if not stop or price <= stop:
+        return None
+    cap = settings["capital"] * 1e6
+    factor = LIGHT_FACTOR.get(light or "", 1.0)
+    money = cap * settings["risk_pct"] / 100 * factor
+    per = (price - stop) * 1000                        # đồng / cp
+    shares = min(int(money / per // 100 * 100), int(cap / (price * 1000) // 100 * 100))
+    risk = shares * per
+    return dict(factor=factor, risk_money=round(money), shares=shares, step1=int(shares / 3 // 100 * 100),
+                value=round(shares * price * 1000), stop_pct=round((stop / price - 1) * 100, 1),
+                heat=round(heat, 2), heat_after=round(heat + risk / cap * 100, 2), max_heat=settings["max_heat"])
+
+
 def portfolio_risk(positions: list[dict], settings: dict, sector_of: dict, light: str | None) -> dict:
     """Tổng hợp rủi ro danh mục. sector_of: {mã: tên ngành}. Lệnh chưa nhập số lượng thì không tính được tiền."""
     cap = settings["capital"] * 1e6

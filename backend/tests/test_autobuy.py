@@ -82,3 +82,49 @@ def test_paper_evaluate_stop_and_target():
                              b("2026-12-03", 12.2, 10.4, 12.1)])
     assert win["status"] == "đã đóng" and win["hit_t1"] and win["R"] > 2
     assert paper.evaluate(t, [b("2026-11-30", 10, 10, 10)])["status"] == "chờ dữ liệu"     # chưa có nến phiên mua
+
+
+def test_checklist_is_the_rule_source_of_good_setup():
+    R = bars()
+    items = it.checklist(PLAN, R)
+    assert [x["key"] for x in items] == ["plan", "zone", "rr", "upper", "turn", "vol", "selloff"]
+    assert all(x["ok"] is not False for x in items) and it.good_setup(PLAN, R)[0]
+    weak = bars(today=dict(c=10.0, h=10.3))                                   # nửa dưới biên độ + chưa tăng giá
+    bad = it.checklist(PLAN, weak)
+    assert [x["key"] for x in bad if x["ok"] is False] == ["upper", "turn"]
+    assert it.good_setup(PLAN, weak)[1] == bad[3]["why"]                      # lý do = mục sai đầu tiên
+    assert next(x for x in it.checklist(dict(PLAN, kind="Spring/Test"), R) if x["key"] == "turn")["ok"] is None
+    none = it.checklist(dict(PLAN, kind="Không vào"), R)
+    assert len(none) == 1 and none[0]["ok"] is False
+
+
+def test_verdict_levels():
+    R, good = bars(), it.checklist(PLAN, bars())
+    assert [it.verdict(good, light, 10.2, PLAN)[0] for light in ("green", "yellow", "red")] == ["buy", "half", "red"]
+    assert it.verdict(it.checklist(PLAN, bars(today=dict(c=10.4, h=10.45))), "green", 10.4, PLAN)[0] == "no"   # không mua đuổi
+    assert it.verdict(it.checklist(dict(PLAN, rr=1.5), R), "green", 10.2, PLAN)[0] == "no"
+    code, text = it.verdict(it.checklist(PLAN, bars(today=dict(c=10.0, h=10.3))), "green", 10.0, PLAN)
+    assert code == "wait" and "nửa dưới" in text
+
+
+def test_size_for_light_lots_and_capital():
+    from app.core.risk import size_for, DEFAULTS
+    s = dict(DEFAULTS, capital=100.0, risk_pct=1.0)
+    x = size_for(s, "green", 20.0, 19.0)                 # rủi ro 1 triệu, 1.000đ/cp -> 1.000 cp, bước 1 = 300
+    assert (x["shares"], x["step1"], x["heat_after"]) == (1000, 300, 1.0)
+    assert size_for(s, "yellow", 20.0, 19.0)["shares"] == 500 and size_for(s, "red", 20.0, 19.0)["shares"] == 0
+    assert size_for(s, "green", 20.0, 19.99)["shares"] == 5000          # cắt lỗ quá sát: giới hạn bởi vốn
+    assert size_for(s, "green", 20.0, None) is None
+
+
+def test_live_check_with_fake_fetch(tmp_path, monkeypatch):
+    conn = _db(tmp_path)
+    monkeypatch.setattr(it, "get_ohlcv", lambda c, s, d, refresh: [dict(r) for r in conn.execute(
+        "SELECT d,o,h,l,c,v FROM ohlcv WHERE sym=? ORDER BY d", (s,))])
+    monkeypatch.setattr(it, "analyse", lambda R, *a: dict(plan=PLAN, range=dict(res=11)))
+    monkeypatch.setattr(it, "traffic_light", lambda *a: dict(light="yellow"))
+    fetch = lambda s, days: bars()[-3:]
+    out = it.live_check(conn, "aaa", fetch=fetch, now=NOW)
+    assert (out["sym"], out["d"], out["live"], out["verdict"]) == ("AAA", TODAY, True, "half") and "đặt LO" in out["note"]
+    later = it.live_check(conn, "AAA", fetch=fetch, now=NOW + dt.timedelta(hours=2))          # 16h20: phiên đã đóng
+    assert not later["live"] and "đã đóng" in later["note"]
