@@ -316,8 +316,22 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
     if (pts.length < 3) return setDrawing({ pts, m: q });
     const [a, b] = pts;
     const base = a.p + (b.p - a.p) / (b.i - a.i) * (q.i - a.i);
-    saveCh([...channels, { a: toPt(a), b: toPt(b), dp: q.p - base }]);
+    const ch = { a: toPt(a), b: toPt(b), dp: q.p - base };
+    saveCh([...channels, ch]);
     setDrawing(null);
+    analyseCh(ch);                                                // vẽ xong: phân tích Wyckoff trong khoảng của kênh
+  };
+  /** nến của khung đang xem -> ngày giao dịch (tuần / 3 ngày: phiên đầu của nến) */
+  const dayOf = (w: string) => {
+    if (tf === "D" || tf === "H") return w.slice(0, 10);
+    return data.find((r) => view[tf].k(r.d) === w)?.d ?? w;
+  };
+  const analyseCh = (c: Channel) => {
+    if (!onRange || !data.length) return;
+    const ia = idxOf(c.a), ib = idxOf(c.b), rows = view[tf].rows;
+    if (ia == null || ib == null) return;
+    const from = dayOf(rows[Math.min(ia, ib, rows.length - 1)].d), to = data[data.length - 1].d.slice(0, 10);
+    if (from < to) onRange(from, to);
   };
   useEffect(() => {
     const chart = chartRef.current, rows = view[tf].rows, n = rows.length;
@@ -721,24 +735,49 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
       {channels.length > 0 && (() => {
         const rows = view[tf].rows, n = rows.length;
         if (!n) return null;
-        const c0 = rows[n - 1].c;
-        return <div className="row" style={{ gap: 6, marginTop: 6, fontSize: 12.5 }}>
+        const c0 = rows[n - 1].c, P = (x: number) => fmtPrice(x, unit), chg = (x: number) => pct((x / c0 - 1) * 100, 1);
+        return <div style={{ display: "grid", gap: 6, marginTop: 6, fontSize: 13 }}>
           {channels.map((c, j) => {
             const g = chGeom(c, idxOf);
             if (!g) return null;
-            const v1 = g.at(n - 1), v2 = v1 + c.dp, lo = Math.min(v1, v2), hi = Math.max(v1, v2);
-            const pos = hi > lo ? (c0 - lo) / (hi - lo) * 100 : 50;
+            const v1 = g.at(n - 1), v2 = v1 + c.dp, lo = Math.min(v1, v2), hi = Math.max(v1, v2), h = hi - lo;
+            const pos = h > 0 ? (c0 - lo) / h * 100 : 50;
             const slope = v1 ? g.k / v1 * 20 * 100 : 0;
-            return <span key={j} className="pill" style={{ background: "transparent", border: `1px solid ${CH_COLOR}` }}>
-              <b style={{ color: CH_COLOR }}>Kênh {j + 1}</b> · dưới {fmtPrice(lo, unit)} · trên {fmtPrice(hi, unit)} ·{" "}
-              {pos > 100 ? <b className="up">giá đã vượt cạnh trên</b> : pos < 0 ? <b className="down">giá đã thủng cạnh dưới</b>
-                : <>giá ở <b>{num(pos, 0)}%</b> kênh</>}
-              {" "}· dốc {pct(slope, 1)}/20 nến{" "}
-              <button onClick={() => saveCh(channels.filter((_, x) => x !== j))} aria-label={`Xóa kênh ${j + 1}`} title="Xóa kênh"
-                style={{ border: 0, background: "none", cursor: "pointer", color: "var(--muted)", padding: "0 2px" }}>✕</button>
-            </span>;
+            const up = hi - c0, dn = c0 - lo, rr = dn > 0 ? up / dn : null;
+            const span = n - 1 - g.i0;
+            const [tone, read] = pos > 100
+              ? ["var(--up)", `Đã bứt khỏi cạnh trên. Bứt thật khi đóng cửa trên ${P(hi)} với KL lớn rồi lùi về test cạnh trên mà giữ được (giống LPS/Backup); mục tiêu đo theo độ cao kênh ${P(hi + h)} (${chg(hi + h)}).`]
+              : pos < 0
+              ? ["var(--down)", `Đã thủng cạnh dưới. Nếu không lấy lại được ${P(lo)} trong vài phiên (Spring thất bại) thì kênh hỏng; mục tiêu giảm đo theo độ cao kênh ${P(lo - h)} (${chg(lo - h)}).`]
+              : pos <= 25
+              ? ["var(--up)", `Giá sát cạnh dưới: vùng mua theo kênh, cắt lỗ khi đóng cửa dưới ${P(lo)} (${chg(lo)}). Cần thấy KL cạn khi chạm cạnh dưới hoặc một phiên rũ bỏ (Spring) rồi bật lại.`]
+              : pos >= 75
+              ? ["var(--warn)", `Giá sát cạnh trên: lời/lỗ kém nếu mua lúc này. Chờ bứt cạnh trên có KL (SOS) rồi mua nhịp lùi, hoặc chờ về lại gần cạnh dưới.`]
+              : ["var(--muted)", `Giá ở giữa kênh: chưa phải điểm mua đẹp, chờ về gần cạnh dưới hoặc bứt cạnh trên.`];
+            return <div key={j} style={{ border: `1px solid ${CH_COLOR}`, borderRadius: 8, padding: "6px 10px" }}>
+              <div className="row" style={{ gap: 6, justifyContent: "space-between" }}>
+                <span><b style={{ color: CH_COLOR }}>Kênh {j + 1}</b> · {span} nến · dưới {P(lo)} · trên {P(hi)} ·{" "}
+                  {pos > 100 ? <b className="up">giá đã vượt cạnh trên</b> : pos < 0 ? <b className="down">giá đã thủng cạnh dưới</b>
+                    : <>giá ở <b>{num(pos, 0)}%</b> kênh</>}
+                  {" "}· dốc {pct(slope, 1)}/20 nến</span>
+                <span className="row" style={{ gap: 4 }}>
+                  {onRange && <button className="btn" style={{ fontSize: 12, padding: "2px 8px" }} onClick={() => analyseCh(c)}
+                    title="Phân tích Wyckoff chỉ trong khoảng từ điểm đầu của kênh tới phiên mới nhất">Phân tích Wyckoff khoảng này</button>}
+                  <button onClick={() => saveCh(channels.filter((_, x) => x !== j))} aria-label={`Xóa kênh ${j + 1}`} title="Xóa kênh"
+                    style={{ border: 0, background: "none", cursor: "pointer", color: "var(--muted)", padding: "0 4px" }}>✕</button>
+                </span>
+              </div>
+              <div>
+                <b>Tiềm năng:</b> lên cạnh trên <b className="up">{chg(hi)}</b> · về cạnh dưới <b className="down">{chg(lo)}</b>
+                {rr != null && up > 0 && <> · lời/lỗ nếu mua {P(c0)} <b className={rr >= 2 ? "up" : rr < 1 ? "down" : undefined}>{num(rr, 1)}</b></>}
+                {" "}· bứt cạnh trên: mục tiêu {P(hi + h)} ({chg(hi + h)})
+              </div>
+              <div style={{ color: tone }}>{read}</div>
+            </div>;
           })}
-          {channels.length > 1 && <button className="btn" style={{ fontSize: 12 }} onClick={() => saveCh([])}>Xóa hết kênh</button>}
+          {channels.length > 1 && <div><button className="btn" style={{ fontSize: 12 }} onClick={() => saveCh([])}>Xóa hết kênh</button></div>}
+          <div className="muted" style={{ fontSize: 12 }}>Tiềm năng đo theo kênh bạn vẽ (mục tiêu bứt = cạnh trên + độ cao kênh), chỉ để tham khảo;
+            pha, kế hoạch và mục tiêu Nhân–Quả theo Wyckoff xem ở phần phân tích bên dưới.</div>
         </div>;
       })()}
       {showInd && <div ref={box2} style={{ width: "100%", height: 220, marginTop: 4 }} />}
