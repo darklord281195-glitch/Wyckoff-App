@@ -1,28 +1,32 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createChart, ColorType, IChartApi, Time } from "lightweight-charts";
+import { createChart, ColorType, IChartApi, LineStyle, Time } from "lightweight-charts";
 import { day, fullDate, num, type Foreign } from "@/lib/api";
 
-const RANGES = [10, 30, 50, 70, 90];
+const RANGES = [10, 30, 50, 90, 250];
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 const ty = (x: number, d = 1) => (x > 0 ? "+" : "") + num(x, d);          // tỷ đồng có dấu
 
-/** Giao dịch khối ngoại: cột giá trị mua ròng từng phiên (xanh mua ròng, đỏ bán ròng) + tổng hợp theo khoảng. */
-export default function ForeignCard({ rows, error }: { rows: Foreign[]; error?: string | null }) {
-  const [n, setN] = useState(10);
+/** Giao dịch khối ngoại: cột giá trị mua ròng từng phiên (xanh mua ròng, đỏ bán ròng), đường lũy kế mua ròng
+ *  (trục trái) để thấy khối ngoại gom hay xả dần, và tổng hợp theo khoảng. "Theo vùng" = từ đáy vùng Wyckoff (SC) tới nay. */
+export default function ForeignCard({ rows, error, rangeStart }: { rows: Foreign[]; error?: string | null; rangeStart?: string | null }) {
+  const [n, setN] = useState<number | "range">(rangeStart ? "range" : 30);
   const box = useRef<HTMLDivElement>(null);
   // cột đang rê chuột: x = tâm cột, w = bề rộng cột (px trong khung biểu đồ)
-  const [hover, setHover] = useState<{ r: Foreign; x: number; w: number } | null>(null);
-  const view = useMemo(() => rows.slice(-n), [rows, n]);
+  const [hover, setHover] = useState<{ r: Foreign; cum: number; x: number; w: number } | null>(null);
+  const view = useMemo(() => n === "range" && rangeStart ? rows.filter((r) => r.d >= rangeStart) : rows.slice(-(n === "range" ? 30 : n)),
+    [rows, n, rangeStart]);
+  const cum = useMemo(() => { let s = 0; return view.map((r) => (s += r.net)); }, [view]);
 
   useEffect(() => {
     if (!box.current || !view.length) return;
-    const muted = css("--muted"), grid = css("--grid"), up = css("--up"), down = css("--down");
+    const muted = css("--muted"), grid = css("--grid"), up = css("--up"), down = css("--down"), accent = css("--accent");
     const chart: IChartApi = createChart(box.current, {
       autoSize: true,
       layout: { background: { type: ColorType.Solid, color: css("--surface") }, textColor: muted, fontFamily: css("--font") },
       grid: { vertLines: { visible: false }, horzLines: { color: grid } },
       rightPriceScale: { borderVisible: false },
+      leftPriceScale: { visible: true, borderVisible: false },
       timeScale: { borderColor: grid, fixLeftEdge: true, fixRightEdge: true },
       // tắt đường dóng mặc định: dùng dải nền + tooltip riêng
       crosshair: { vertLine: { visible: false, labelVisible: false }, horzLine: { visible: false, labelVisible: false } },
@@ -31,18 +35,21 @@ export default function ForeignCard({ rows, error }: { rows: Foreign[]; error?: 
     });
     const bars = chart.addHistogramSeries({ priceLineVisible: false, lastValueVisible: false });
     bars.setData(view.map((r) => ({ time: r.d as Time, value: r.net, color: r.net >= 0 ? up : down })));
+    chart.addLineSeries({ priceScaleId: "left", color: accent, lineWidth: 2, lineStyle: LineStyle.Solid,
+      priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false })
+      .setData(view.map((r, i) => ({ time: r.d as Time, value: cum[i] })));
     chart.timeScale().fitContent();
-    const byDay = new Map(view.map((r) => [r.d, r]));
+    const byDay = new Map(view.map((r, i) => [r.d, i]));
     // thời gian dạng "YYYY-MM-DD" được thư viện trả lại thành {year, month, day}
     const iso = (t: Time) => typeof t === "string" ? t : typeof t === "number" ? new Date(t * 1000).toISOString().slice(0, 10)
       : `${t.year}-${String(t.month).padStart(2, "0")}-${String(t.day).padStart(2, "0")}`;
     chart.subscribeCrosshairMove((p) => {
-      const r = p.time ? byDay.get(iso(p.time)) : undefined;
+      const i = p.time ? byDay.get(iso(p.time)) : undefined;
       const x = p.time ? chart.timeScale().timeToCoordinate(p.time) : null;
-      setHover(r && x != null ? { r, x, w: chart.timeScale().options().barSpacing } : null);
+      setHover(i != null && x != null ? { r: view[i], cum: cum[i], x, w: chart.timeScale().options().barSpacing } : null);
     });
     return () => chart.remove();
-  }, [view]);
+  }, [view, cum]);
 
   if (error && !rows.length) return <section className="card"><h2>Khối ngoại</h2>
     <p className="muted">Không tải được dữ liệu khối ngoại ({error}).</p></section>;
@@ -52,13 +59,16 @@ export default function ForeignCard({ rows, error }: { rows: Foreign[]; error?: 
   const nUp = view.filter((r) => r.net > 0).length, nDown = view.filter((r) => r.net < 0).length;
   const last = view[view.length - 1];
   const room = last.total_room ? (last.room ?? 0) / last.total_room * 100 : null;
-  const tipW = 210;                                     // bề rộng tooltip; lật sang trái khi sát mép phải
+  const short = n === "range" && rangeStart && rows[0].d > rangeStart;   // dữ liệu chưa phủ hết vùng
+  const tipW = 220;                                     // bề rộng tooltip; lật sang trái khi sát mép phải
 
   return (
     <section className="card">
       <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
         <h2 style={{ margin: 0 }}>Khối ngoại · giá trị mua ròng (tỷ đồng)</h2>
         <div className="tabs">
+          {rangeStart && <button className={n === "range" ? "on" : ""} onClick={() => setN("range")}
+            title={`Từ đáy vùng Wyckoff (SC ${fullDate(rangeStart)}) tới nay`}>Theo vùng</button>}
           {RANGES.map((x) => (
             <button key={x} className={n === x ? "on" : ""} onClick={() => setN(x)} disabled={rows.length < Math.min(x, 10)}>
               {x} phiên</button>
@@ -66,10 +76,10 @@ export default function ForeignCard({ rows, error }: { rows: Foreign[]; error?: 
         </div>
       </div>
       <div style={{ position: "relative" }} onMouseLeave={() => setHover(null)}>
-        <div ref={box} style={{ width: "100%", height: 220 }} />
+        <div ref={box} style={{ width: "100%", height: 240 }} />
         {hover && <>
           <div style={{   // dải nền làm nổi cột đang rê chuột
-            position: "absolute", top: 0, bottom: 28, left: hover.x - hover.w / 2, width: hover.w,
+            position: "absolute", top: 0, bottom: 28, left: hover.x - hover.w / 2, width: Math.max(hover.w, 2),
             background: "var(--muted)", opacity: 0.15, pointerEvents: "none", zIndex: 4,   // trên canvas biểu đồ (z-index 3)
           }} />
           <div className="fx-tip" style={{
@@ -80,6 +90,7 @@ export default function ForeignCard({ rows, error }: { rows: Foreign[]; error?: 
             <div>Ngày: {fullDate(hover.r.d)}</div>
             <div>Giá trị mua ròng: <b className={hover.r.net >= 0 ? "up" : "down"}>{num(hover.r.net, 2)} tỷ</b></div>
             <div className="muted">Mua {num(hover.r.buy, 2)} · bán {num(hover.r.sell, 2)} tỷ</div>
+            <div>Lũy kế từ {day(view[0].d)}: <b className={hover.cum >= 0 ? "up" : "down"}>{ty(hover.cum)} tỷ</b></div>
           </div>
         </>}
       </div>
@@ -90,7 +101,9 @@ export default function ForeignCard({ rows, error }: { rows: Foreign[]; error?: 
         <dt>Room còn lại</dt><dd>{room == null ? "–" : num(room, 1) + "%"}</dd>
       </dl>
       <p className="muted" style={{ margin: "8px 0 0", fontSize: 12.5 }}>
-        Từ {day(view[0].d)} tới {day(last.d)} · nguồn VNDirect · rê chuột lên cột để xem từng phiên
+        Từ {day(view[0].d)}/{view[0].d.slice(0, 4)} tới {day(last.d)} · cột = mua ròng từng phiên (trục phải), đường xanh = lũy kế
+        (trục trái): đi lên đều khi giá ở đáy vùng là dấu hiệu gom, đi xuống khi giá lên gần trần là xả · nguồn VNDirect
+        {short ? ` · dữ liệu khối ngoại chỉ có từ ${fullDate(rows[0].d)}, chưa phủ hết vùng (SC ${fullDate(rangeStart!)})` : ""}
       </p>
     </section>
   );

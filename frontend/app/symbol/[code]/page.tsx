@@ -98,7 +98,7 @@ export default function SymbolPage({ params }: { params: Promise<{ code: string 
 
       {u === "k" && <FundamentalsCard f={d.fundamentals ?? null} at={at} />}
 
-      {u === "k" && <ForeignCard rows={d.foreign ?? []} error={d.foreign_error} />}
+      {u === "k" && <ForeignCard rows={d.foreign ?? []} error={d.foreign_error} rangeStart={a?.range?.start ?? null} />}
 
       {a?.plan && u === "k" && <PlanCard sym={d.sym} plan={a.plan} c={a.c} unit={u} readOnly={!!at} odds={d.scenario_stats} />}
 

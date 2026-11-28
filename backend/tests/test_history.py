@@ -83,18 +83,18 @@ def test_foreign_cached_and_refetched(tmp_path):
     from app.core.foreign import get_foreign
     conn = _db(tmp_path)
     calls = []
-    def fake(sym, end=None):
+    def fake(sym, end=None, size=110):
         calls.append(end)
         days = [r[0] for r in conn.execute("SELECT d FROM ohlcv WHERE sym=? AND d<=? ORDER BY d DESC LIMIT 100",
                                            (sym, end or "9999"))]
         return [dict(d=d, buy=2.0, sell=1.0, net=1.0, net_vol=100, room=10, total_room=20) for d in days]
-    rows, err = get_foreign(conn, "TCH", None, fetcher=fake)
+    rows, err = get_foreign(conn, "TCH", None, 90, fetcher=fake)
     assert err is None and len(rows) == 90 and rows[-1]["d"] == "2026-11-20" and rows[0]["d"] < rows[-1]["d"]
-    get_foreign(conn, "TCH", None, fetcher=fake)
+    get_foreign(conn, "TCH", None, 90, fetcher=fake)
     assert len(calls) == 1                                       # đủ dữ liệu -> không tải lại
-    rows, _ = get_foreign(conn, "TCH", "2026-10-15", fetcher=fake)
+    rows, _ = get_foreign(conn, "TCH", "2026-10-15", 90, fetcher=fake)
     assert rows[-1]["d"] == "2026-10-15" and len(rows) == 90
-    def broken(sym, end=None):
+    def broken(sym, end=None, size=0):
         raise OSError("mất mạng")
     rows, err = get_foreign(conn, "DPG", None, fetcher=broken)
     assert rows == [] and "mất mạng" in err

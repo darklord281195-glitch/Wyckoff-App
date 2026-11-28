@@ -6,7 +6,7 @@ import json, time, urllib.request
 
 FINFO = "https://api-finfo.vndirect.com.vn/v4/foreigns"
 HEADERS = {"User-Agent": "Mozilla/5.0"}
-MAX_SESSIONS = 90                      # khoảng dài nhất trên web
+MAX_SESSIONS = 250                     # khoảng dài nhất trên web (~1 năm); "Theo vùng" có thể cần dài hơn
 
 
 def fetch(sym: str, end: str | None = None, size: int = MAX_SESSIONS + 20) -> list[dict]:
@@ -86,12 +86,14 @@ def get_foreign(conn, sym: str, end: str | None = None, n: int = MAX_SESSIONS, f
     Tải lại khi DB thiếu phiên: chưa đủ `n` phiên, hoặc phiên cuối cũ hơn nến giá cuối (tới `end`)."""
     sym = sym.upper()
     rows = _stored(conn, sym, end, n)
-    q = "SELECT max(d) FROM ohlcv WHERE sym=?" + (" AND d<=?" if end else "")
-    last_px = conn.execute(q, (sym, end) if end else (sym,)).fetchone()[0]
-    if len(rows) >= n and (not last_px or rows[-1]["d"] >= last_px):
+    q = "SELECT max(d), count(*) FROM ohlcv WHERE sym=?" + (" AND d<=?" if end else "")
+    last_px, n_px = conn.execute(q, (sym, end) if end else (sym,)).fetchone()
+    # mã mới niêm yết có ít phiên hơn n: đủ khi đã có gần hết số phiên giá (không tải lại mỗi lần mở trang)
+    enough = len(rows) >= min(n, max(n_px - 5, 1)) if n_px else len(rows) >= n
+    if rows and enough and (not last_px or rows[-1]["d"] >= last_px):
         return rows, None
     try:
-        got = fetcher(sym, end)
+        got = fetcher(sym, end, size=n + 20)
     except Exception as e:                     # mất mạng / API đổi: vẫn trả phần đã lưu
         return rows, str(e)
     conn.executemany("INSERT OR REPLACE INTO foreign_trade(sym,d,buy,sell,net,net_vol,room,total_room) VALUES (?,?,?,?,?,?,?,?)",

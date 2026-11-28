@@ -75,7 +75,8 @@ def test_sync_foreign_only_missing_and_net_sum(tmp_path):
             raise OSError("lỗi mạng")
         return [dict(d=d, buy=2.0, sell=1.0, net=1.0, net_vol=1, room=1, total_room=2) for d in days[::-1]]
     assert sync_foreign(conn, ["AAA", "BAD"], "2026-11-20", fetcher=fake) == ["BAD"]
-    assert ("AAA", 110) in calls                              # chưa có gì -> tải dài
+    from app.core.foreign import MAX_SESSIONS
+    assert ("AAA", MAX_SESSIONS + 20) in calls                # chưa có gì -> tải dài
     calls.clear()
     assert sync_foreign(conn, ["AAA"], "2026-11-20", fetcher=fake) == [] and calls == []   # đã đủ -> không tải
     assert net_sum(conn, "AAA", "2026-11-20") == 10.0

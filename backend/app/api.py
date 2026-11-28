@@ -10,7 +10,7 @@ from .core.data import get_ohlcv, fetch_remote, add_atc
 from .core.wyckoff import analyse, trim, ANALYSIS_DAYS
 from .core.market import traffic_light
 from .core.positions import simulate
-from .core.foreign import get_foreign
+from .core.foreign import get_foreign, MAX_SESSIONS as FX_MAX
 from .core import risk as risk_mod
 from .core import journal as journal_mod
 from .core import forward as forward_mod
@@ -190,6 +190,16 @@ def listing_get():
     return [dict(sym=INDEX, name="Chỉ số VN-Index", floor="HOSE")] + rows
 
 
+def _fx_sessions(code: str, at: str | None, res: dict | None) -> int:
+    """Số phiên khối ngoại cần cho trang mã: tối thiểu MAX_SESSIONS, dài hơn nếu vùng Wyckoff bắt đầu sớm hơn (nút "Theo vùng")."""
+    start = ((res or {}).get("range") or {}).get("start")
+    if not start:
+        return FX_MAX
+    q = "SELECT count(*) FROM ohlcv WHERE sym=? AND d>=?" + (" AND d<=?" if at else "")
+    n = conn.execute(q, (code, start, at) if at else (code, start)).fetchone()[0]
+    return max(FX_MAX, n + 5)
+
+
 @app.get("/api/symbols/{code}")
 def symbol(code: str, at: dt.date | None = None, start: dt.date | None = Query(None, alias="from")):
     """Phân tích tại phiên `at` (chỉ dữ liệu tới đó; có `from` thì chỉ dò vùng trong khoảng from–at).
@@ -200,7 +210,7 @@ def symbol(code: str, at: dt.date | None = None, start: dt.date | None = Query(N
         raise HTTPException(400, "Ngày bắt đầu phải trước ngày kết thúc")
     R, res = _analysis(code, at, start)
     full = get_ohlcv(conn, code, 10000, refresh=False)
-    fx, fx_err = get_foreign(conn, code, at) if len(code) == 3 else ([], None)   # khối ngoại: chỉ cổ phiếu
+    fx, fx_err = get_foreign(conn, code, at, _fx_sessions(code, at, res)) if len(code) == 3 else ([], None)   # chỉ cổ phiếu
     fundamentals = _fundamentals(code, at) if len(code) == 3 else None
     kind = ((res or {}).get("plan") or {}).get("kind")
     st = kind and conn.execute("SELECT * FROM backtest_stats WHERE plan=?", (kind.split(" (")[0],)).fetchone()
