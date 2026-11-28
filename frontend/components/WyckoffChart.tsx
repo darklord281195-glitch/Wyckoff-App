@@ -223,7 +223,7 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
   stats?: PlanStats | null;
   /** khoảng đang phân tích (tô nền); from = to khi chỉ chọn một ngày */
   sel?: { from: string; to: string } | null;
-  /** người dùng kéo chọn khoảng [from, to] (ngày giao dịch) trên biểu đồ */
+  /** phân tích Wyckoff trong khoảng [from, to] (ngày giao dịch), gọi từ thẻ kênh song song */
   onRange?: (from: string, to: string) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -247,8 +247,6 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
       H: { rows: H, k: keyMap([], H.map((r) => r.d)) },
     } as Record<Tf, { rows: Ohlcv[]; k: (d: string) => string }>;
   }, [data, hourly]);
-  const [picking, setPicking] = useState(false);              // đang ở chế độ kéo chọn khoảng
-  const [drag, setDrag] = useState<{ x0: number; x1: number } | null>(null);
   const [vtip, setVtip] = useState<{ x: number; y: number; d: string; v: number; vx: number | null; chg: number | null } | null>(null);   // hover cột KL
   const [tip, setTip] = useState<{ x: number; y: number; label: string; price: number } | null>(null);   // hover điểm kịch bản
   const [showSc, setShowSc] = useState(true);                 // vẽ kịch bản Wyckoff
@@ -679,29 +677,6 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
     return () => { sub?.remove(); sub2?.remove(); chart.remove(); chartRef.current = null; candleRef.current = null; setTip(null); setVtip(null); };
   }, [view, tf, analysis, unit, sel?.from, sel?.to, sc, showSc, showInd, showIchi, showMcdx, showAuto]);
 
-  // chế độ chọn khoảng: tắt kéo/zoom của biểu đồ để chuột dùng cho việc chọn
-  useEffect(() => {
-    chartRef.current?.applyOptions({ handleScroll: !picking, handleScale: !picking });
-  }, [picking, tf, analysis]);
-
-  /** vị trí x (px trong khung) -> ngày giao dịch; khung tuần: đầu khoảng = phiên đầu tuần, cuối = phiên cuối tuần */
-  const xToDay = (x: number, end: boolean) => {
-    const { rows, k } = view[tf], lg = chartRef.current?.timeScale().coordinateToLogical(x);
-    if (lg == null || !rows.length) return null;
-    const w = rows[Math.min(rows.length - 1, Math.max(0, Math.round(lg)))].d;
-    if (tf === "D" || tf === "H") return w.slice(0, 10);
-    const inWeek = data.filter((r) => k(r.d) === w);
-    return (end ? inWeek[inWeek.length - 1] : inWeek[0])?.d ?? w;
-  };
-  const relX = (e: PointerEvent) => e.clientX - e.currentTarget.getBoundingClientRect().left;
-  const finish = () => {
-    if (drag && Math.abs(drag.x1 - drag.x0) > 4) {
-      const a = xToDay(Math.min(drag.x0, drag.x1), false), b = xToDay(Math.max(drag.x0, drag.x1), true);
-      if (a && b && a < b) { onRange?.(a, b); setPicking(false); }
-    }
-    setDrag(null);
-  };
-
   return (
     <>
       <div className="row" style={{ marginBottom: 8 }}>
@@ -712,9 +687,6 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
         </div>
         {tf === "H" && !hourly && <span className="muted" style={{ fontSize: 12.5 }}>
           {hErr ? `Không tải được nến 1 giờ: ${hErr}` : "Đang tải nến 1 giờ…"}</span>}
-        {onRange && <button className={`btn${picking ? " primary" : ""}`} onClick={() => { setPicking(!picking); setDrag(null); setDrawing(null); }}
-          title="Kéo chuột qua một đoạn để phân tích Wyckoff trong đoạn đó">
-          {picking ? "Kéo chuột chọn khoảng… (bấm để hủy)" : "↔ Chọn khoảng phân tích"}</button>}
         {analysis && <button className={`btn${showAuto ? " primary" : ""}`} onClick={toggleAuto}
           title="Mốc Wyckoff app tự dò (SC, AR, ST, Spring, SOS…), ô vùng SC–AR và các đường Vào / Cắt lỗ / T1–T4. Tắt để vẽ kênh cho thoáng.">
           {showAuto ? "✓ Mốc Wyckoff" : "Mốc Wyckoff"}</button>}
@@ -730,7 +702,7 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
         <button className={`btn${showMcdx ? " primary" : ""}`} onClick={toggleMcdx}
           title="MCDX Plus: đỏ = banker (RSI 50), vàng = hot money (RSI 40), xanh = nhỏ lẻ; đường = TB 10 phiên của banker">
           {showMcdx ? "✓ MCDX" : "MCDX"}</button>
-        <button className={`btn${drawing ? " primary" : ""}`} onClick={() => { setDrawing(drawing ? null : { pts: [], m: null }); setPicking(false); }}
+        <button className={`btn${drawing ? " primary" : ""}`} onClick={() => { setDrawing(drawing ? null : { pts: [], m: null }); }}
           title="Bấm 2 điểm để vẽ đường chính (ví dụ 2 đáy), bấm điểm thứ 3 để đặt đường song song (ví dụ 1 đỉnh). Kênh lưu theo mã và khung thời gian, kéo dài về phía trước.">
           {drawing ? `Bấm điểm ${drawing.pts.length + 1}/3… (Esc để hủy)` : "⫽ Kênh song song"}</button>
         {tf !== "D" && <span className="muted" style={{ fontSize: 12.5 }}>
@@ -758,17 +730,6 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
             {vtip.chg != null && <> · <b className={vtip.chg >= 0 ? "up" : "down"}>{pct(vtip.chg, 2)}</b></>}
             <div>KL <b>{num(vtip.v, 2)}</b>{unit === "pt" ? "" : " triệu cp"}
               {vtip.vx != null && <span className="muted"> · x{num(vtip.vx, 1)} TB20</span>}</div>
-          </div>
-        )}
-        {picking && (   // lớp phủ nhận thao tác kéo khi đang chọn khoảng
-          <div style={{ position: "absolute", inset: 0, zIndex: 10, cursor: "col-resize", touchAction: "none" }}
-            onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); const x = relX(e); setDrag({ x0: x, x1: x }); }}
-            onPointerMove={(e) => { if (drag) setDrag({ ...drag, x1: relX(e) }); }}
-            onPointerUp={finish} onPointerCancel={() => setDrag(null)}>
-            {drag && <div style={{
-              position: "absolute", top: 0, bottom: 0, left: Math.min(drag.x0, drag.x1), width: Math.abs(drag.x1 - drag.x0),
-              background: "var(--accent-soft)", borderLeft: "2px solid var(--accent)", borderRight: "2px solid var(--accent)",
-            }} />}
           </div>
         )}
         {drawing && (   // lớp phủ nhận 3 cú bấm khi vẽ kênh

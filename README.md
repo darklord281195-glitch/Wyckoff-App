@@ -168,7 +168,14 @@ Tin Telegram lúc 15:30 có mục "Sổ thử nghiệm" liệt kê các lệnh v
 
 Biểu đồ trên trang mã có 2 khung nến **Ngày / Tuần**, vẽ toàn bộ lịch sử (kéo/cuộn để xem cũ hơn). Khung chỉ đổi cách vẽ. Phân tích, mốc Wyckoff và kế hoạch vẫn tính theo ngày trên cửa sổ 420 ngày. Muốn có lịch sử dài thì chạy `app.backtest --backfill` trước.
 
-**Phân tích một khoảng tự chọn:** bấm **↔ Chọn khoảng phân tích** trên biểu đồ rồi kéo chuột qua một đoạn, ví dụ 08/2025 → 12/2025. App phân tích lại tại ngày cuối của khoảng:
+**Kênh song song** (nút **⫽ Kênh song song**): bấm 2 điểm để vẽ đường chính (ví dụ 2 đáy), bấm điểm thứ 3 để đặt đường song song (ví dụ 1 đỉnh); Esc để hủy. Kênh có đường giữa, kéo dài về phía trước, lưu trong trình duyệt theo mã + khung. Dưới biểu đồ mỗi kênh có:
+- cạnh dưới/trên, giá ở bao nhiêu % kênh, độ dốc; tiềm năng tới cạnh trên/dưới, lời/lỗ (cắt lỗ dưới cạnh dưới 3%), mục tiêu bứt = cạnh trên + độ cao kênh;
+- **Wyckoff theo kênh** (`frontend/lib/channelWyckoff.ts`): cạnh dưới = hỗ trợ, cạnh trên = kháng cự; mỗi lượt chạm/xuyên cạnh được gắn nhãn (mở đầu ở cạnh dưới = tích lũy: SC, AR, ST, Spring, Test, UT, SOS, LPS; ở cạnh trên = phân phối: BC, AR, ST, UTAD, SOW, LPSY), tô dải Pha A–E và kết luận pha hiện tại. Luật đơn giản hóa, chưa backtest;
+- nút **Phân tích Wyckoff khoảng này**: chạy phân tích của app trong khoảng từ điểm đầu kênh tới phiên mới nhất (xem dưới).
+
+Khi có kênh, mốc tự dò của app được ẩn để không chồng nhãn. Nút **Mốc Wyckoff** bật/tắt mốc tự dò, ô vùng SC–AR và các đường Vào / Cắt lỗ / T1–T4.
+
+**Phân tích một khoảng tự chọn** (nút **Phân tích Wyckoff khoảng này** trên thẻ kênh): app phân tích lại tại ngày cuối của khoảng:
 - chỉ dùng dữ liệu tới ngày đó, và chỉ dò vùng tích lũy/phân phối trong khoảng đã chọn (tối thiểu 60 phiên);
 - giữ cả vùng phân phối lẫn vùng tích lũy nếu khoảng chọn có cả hai (mặc định app bỏ phân phối cũ khi đã có tích lũy mới);
 - nến sau khoảng chọn vẫn hiện trên biểu đồ để so với diễn biến thực tế.
