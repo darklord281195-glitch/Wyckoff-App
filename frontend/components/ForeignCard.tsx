@@ -50,7 +50,9 @@ export default function ForeignCard({ rows: fxRows, error, prop, propError, rang
       : `${t.year}-${String(t.month).padStart(2, "0")}-${String(t.day).padStart(2, "0")}`;
     chart.subscribeCrosshairMove((p) => {
       const i = p.time ? byDay.get(iso(p.time)) : undefined;
-      const x = p.time ? chart.timeScale().timeToCoordinate(p.time) : null;
+      // tọa độ của thư viện tính từ mép vùng vẽ: cộng bề rộng trục trái (đường lũy kế) để khớp khung ngoài
+      const x0 = p.time ? chart.timeScale().timeToCoordinate(p.time) : null;
+      const x = x0 == null ? null : x0 + chart.priceScale("left").width();
       setHover(i != null && x != null ? { r: view[i], cum: cum[i], x, w: chart.timeScale().options().barSpacing } : null);
     });
     return () => chart.remove();
