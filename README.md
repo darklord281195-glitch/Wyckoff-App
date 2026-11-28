@@ -237,7 +237,25 @@ Kết quả 28/11/2026 với trượt giá tự tính (TB 0,33%/chiều): R TB t
 
 **Backtest cấp danh mục** (`--portfolio`, xem trên trang **Kết quả**): mô phỏng một tài khoản 100 triệu theo đúng luật app (ẩn tín hiệu theo đèn, rủi ro 1%/lệnh × hệ số đèn, tối đa 6 lệnh, tổng rủi ro ≤ 6%, ưu tiên điểm sẵn sàng cao), định giá theo giá đóng cửa mỗi phiên. So với **mua-giữ VNINDEX** và **chỉ theo đèn** (giữ VNINDEX khi đèn không đỏ, tiền mặt khi đỏ). Chỉ số: tổng, lợi nhuận năm, sụt giảm lớn nhất, Sharpe, % thời gian có vị thế, theo 2019–23 / 2024–26 / toàn kỳ và từng năm.
 
-Kết quả 22/11/2026: toàn kỳ app +4,1%/năm (sụt tối đa −24%) so với VNINDEX +8,1%/năm (sụt −40%); 2019–23 app thắng (10,0% so với 3,8%/năm), 2024–26 app thua xa (−4,6% so với +15,1%/năm). App chỉ có vị thế ~30% thời gian.
+**Chia vốn lõi–vệ tinh** (cùng lệnh `--portfolio`, thẻ "Chia vốn" trên trang **Kết quả**, ô chọn để vẽ một cách lên biểu đồ):
+- *Lõi VNINDEX x% + app*: x% vốn mua-giữ VNINDEX, phần còn lại theo app; phiên đầu mỗi tháng tái cân bằng về tỷ trọng mục tiêu (x = 50 / 70 / 80).
+- *Lõi theo đèn x% + app*: như trên nhưng phần lõi theo đèn (giữ VNINDEX khi đèn không đỏ).
+- *App + tiền nhàn rỗi vào chỉ số*: tiền mặt app chưa dùng thì giữ VNINDEX khi đèn không đỏ.
+- Phí mua/bán chỉ số 0,25% mỗi lần đổi, tái cân bằng, rút/nộp tiền. Xếp theo mức hơn/kém mua-giữ ở giai đoạn **tệ hơn** trong 2019–23 / 2024–26. VNINDEX là chỉ số giá (chưa gồm cổ tức ~1–2%/năm), quỹ ETF thật có thêm phí quản lý và sai số bám chỉ số.
+
+Kết quả 28/11/2026 (trượt giá tự tính, lợi nhuận năm · sụt giảm lớn nhất toàn kỳ):
+
+| Cách | 2019–23 | 2024–26 | Toàn kỳ | Sụt max |
+|---|---|---|---|---|
+| Mua-giữ VNINDEX | +3,8% | +14,2% | +7,7% | −40,3% |
+| Wyckoff app | +5,7% | −3,6% | +2,0% | −29,7% |
+| Chỉ theo đèn | +7,2% | +1,7% | +5,0% | −24,2% |
+| Lõi VNINDEX 80% + app 20% | +4,6% | +10,5% | +6,9% | −35,2% |
+| Lõi theo đèn 80% + app 20% | +7,0% | +0,7% | +4,5% | −25,1% |
+| App + tiền nhàn rỗi vào chỉ số | +5,3% | −7,1% | +0,4% | −41,1% |
+
+Chưa cách nào thắng mua-giữ ở **cả hai** giai đoạn. Gần nhất là lõi VNINDEX 80% (kém 3,7 điểm %/năm ở 2024–26, sụt giảm nhỏ hơn một chút, Sharpe ngang). Các cách dựa vào đèn thắng rõ ở 2019–23 (có năm 2022 sập −33%) nhưng thua xa ở 2024–26 (thị trường tăng mạnh). App chỉ có vị thế ~30% thời gian.
+Lần chạy 22/11/2026 (trượt giá cố định 0,25%, luật kế hoạch cũ): app +4,1%/năm toàn kỳ, 2019–23 +10,0%, 2024–26 −4,6%.
 
 **Kiểm chứng bộ lọc mới:**
 ```bat

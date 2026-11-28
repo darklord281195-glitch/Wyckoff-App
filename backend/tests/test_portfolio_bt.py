@@ -39,3 +39,38 @@ def test_metrics_and_light_strategy():
     light = {d: ("red" if i < 10 else "green") for i, d in enumerate(DATES)}
     eq, inv = P.light_strategy(DATES, idx, light)
     assert eq[5] == 1.0 and inv[5] == 0 and inv[-1] == 1.0 and eq[-1] > 1.0              # đèn đỏ: đứng ngoài
+
+
+def test_blend_rebalances_monthly():
+    dates = ["2026-01-30", "2026-01-31", "2026-02-02", "2026-02-03"]
+    core, sat = [1.0, 1.1, 1.1, 1.1], [1.0, 1.0, 1.0, 1.0]
+    eq, inv = P.blend(dates, core, [1.0] * 4, sat, [0.0] * 4, 0.5, cost=0)
+    assert abs(eq[1] - 1.05) < 1e-12                       # trong tháng: tự trôi (0,5 × 1,1 + 0,5)
+    assert abs(eq[-1] - 1.05) < 1e-12 and abs(inv[2] - 0.5) < 1e-12   # đầu tháng 2: về lại 50/50
+    eq2, _ = P.blend(dates, core, [1.0] * 4, sat, [0.0] * 4, 0.5, cost=0.01)
+    assert eq2[-1] < eq[-1]                                # tái cân bằng tốn phí
+
+
+def test_idle_cash_follows_index_unless_red():
+    idx = {d: 100.0 * (1.01 ** i) for i, d in enumerate(DATES)}         # chỉ số tăng 1%/phiên
+    red = {d: "red" for d in DATES}
+    green = {d: "green" for d in DATES}
+    base, _, _ = P.simulate([], DATES, {})
+    assert base[-1] == 1.0                                               # không lệnh, không tiền nhàn rỗi: đứng yên
+    eq_red, _, _ = P.simulate([], DATES, {}, idle=(idx, red))
+    assert eq_red[-1] == 1.0                                             # đèn đỏ: giữ tiền mặt
+    eq_g, inv_g, _ = P.simulate([], DATES, {}, idle=(idx, green))
+    assert abs(eq_g[-1] - (1 - P.SWITCH_COST) * 1.01 ** 18) < 1e-9 and inv_g[-1] == 1.0   # vào chỉ số từ phiên 2
+    t = [trade("A", DATES[5], DATES[9], 10.0)]
+    eq_t, _, taken = P.simulate(t, DATES, flat("A"), idle=(idx, green))
+    # lệnh lãi 10% trong 4 phiên chỉ số +4%: hơn tiền nhàn rỗi một chút, sau phí rút/nộp tiền
+    assert len(taken) == 1 and eq_g[-1] < eq_t[-1] < eq_g[-1] + 0.01
+
+
+def test_rank_variants_by_worst_period():
+    m = lambda c, mdd=-10: dict(cagr=c, mdd=mdd)
+    res = {p: dict(vni=m(5, -30), app=m(a), light=m(4), app_idle=m(i), **{k: m(0) for k in P.VARIANTS if k != "app_idle"})
+           for p, a, i in (("2019–23", 9, 7), ("2024–26", -4, 6), ("Toàn kỳ", 2, 6.5))}
+    r = P.rank_variants(res)
+    assert r[0]["k"] == "app_idle" and r[0]["both"] and r[0]["mdd_better"] and r[0]["worst"] == 1
+    assert next(x for x in r if x["k"] == "app")["worst"] == -9

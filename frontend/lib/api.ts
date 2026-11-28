@@ -77,10 +77,13 @@ export type SectorRow = { icb: string; name: string; n: number; rs20: number | n
 /** Một chiến lược trong backtest danh mục: % tổng, % năm, sụt giảm lớn nhất, Sharpe, % thời gian có vị thế. */
 export type PfMetric = { total: number; cagr: number; mdd: number; sharpe: number | null; exposure: number;
   yearly: Record<string, number>; trades?: number };
+/** Cách chia vốn so với mua-giữ: worst = hơn/kém (điểm %/năm) ở giai đoạn tệ hơn trong 2019–23 / 2024–26. */
+export type PfRank = { k: string; worst: number; both: boolean; mdd_better: boolean };
 export type PortfolioRun = { created: string;
-  params: { risk_pct: number; max_pos: number; max_heat: number; start: string; end: string; trades_total: number; trades_taken: number };
-  metrics: Record<string, { app: PfMetric; vni: PfMetric; light: PfMetric }>;
-  curves: { d: string; app: number; vni: number; light: number }[] };
+  params: { risk_pct: number; max_pos: number; max_heat: number; start: string; end: string; trades_total: number; trades_taken: number;
+    names?: Record<string, string>; ranking?: PfRank[]; best?: string | null; slip?: number | null; switch_cost?: number };
+  metrics: Record<string, Record<string, PfMetric>>;          // giai đoạn -> chiến lược (app, vni, light, app_idle, cs_vni_70…)
+  curves: Record<string, string | number>[] };                 // { d, app, vni, light, … } theo tuần
 /** Chấm điểm tín hiệu đã báo (/api/forward). */
 export type ForwardItem = { date: string; sym: string; kind: string; replay: boolean; plan: string | null;
   entry_lo: number | null; entry_hi: number | null; stop: number | null; status: string; entry_d: string | null;
