@@ -202,7 +202,6 @@ export default function TopPage() {
 
   return (
     <>
-      <span className="wide-page" hidden />
       <section className="card hero">
         <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
           <div className="row" style={{ gap: 10 }}>
