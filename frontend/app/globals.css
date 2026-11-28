@@ -54,6 +54,8 @@ h1 { font-size: 24px; margin: 0; letter-spacing: -.015em; }
 h2 { font-size: 16.5px; margin: 0 0 12px; letter-spacing: -.01em; font-weight: 650; }
 h3 { letter-spacing: -.01em; }
 .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.row.filters { gap: 8px; }
+@media (min-width: 1000px) { .row.filters { flex-wrap: nowrap; } }   /* bộ lọc Tổng quan: một dòng trên màn hình rộng */
 .muted { color: var(--muted); }
 .mono, td.n { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 13.5px; }
 .up { color: var(--up); } .down { color: var(--down); }

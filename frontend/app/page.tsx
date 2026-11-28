@@ -204,18 +204,18 @@ export default function Home() {
               </button>
             ))}
           </div>
-          <div className="row">
+          <div className="row filters">
             <form onSubmit={(e) => { e.preventDefault(); if (q) router.push(`/symbol/${q}${at}`); }}>
-              <input id="search" type="search" placeholder="🔍 Mã (Enter để mở)" value={q} autoComplete="off"
-                aria-label="Tìm mã cổ phiếu" maxLength={10} style={{ width: 170 }}
+              <input id="search" type="search" placeholder="🔍 Tìm mã" title="Gõ mã để lọc bảng, Enter để mở trang mã" value={q} autoComplete="off"
+                aria-label="Tìm mã cổ phiếu" maxLength={10} style={{ width: 150 }}
                 onChange={(e) => setQ(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} />
             </form>
-            <select id="sector" className="btn" value={group.startsWith("icb:") ? group : ""}
+            <select id="sector" className="btn" style={{ width: 165 }} value={group.startsWith("icb:") ? group : ""}
               onChange={(e) => setGroup(e.target.value || "all")}>
               <option value="">Ngành ICB…</option>
               {Object.entries(sectorList).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
-            <select id="stage" value={stage} onChange={(e) => setStage(e.target.value)} className="btn">
+            <select id="stage" value={stage} onChange={(e) => setStage(e.target.value)} className="btn" style={{ width: 200 }}>
               <option value="all">Mọi pha</option>
               <option value="early">🔭 Tiềm năng sớm</option>
               <option value="zone">🎯 Đang trong vùng vào</option>
@@ -224,13 +224,13 @@ export default function Home() {
               <option value="nearsc">⏳ Sát đáy SC ±5%, chưa test (chờ Spring)</option>
               {Object.entries(STAGE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
-            <select id="banker" value={bk} onChange={(e) => setBk(e.target.value)} className="btn"
+            <select id="banker" value={bk} onChange={(e) => setBk(e.target.value)} className="btn" style={{ width: 200 }}
               title="Lọc theo trạng thái MCDX Plus (cột Banker). Số trong ngoặc = số mã ở phiên này (chưa tính các bộ lọc khác).">
               <option value="">Mọi trạng thái Banker</option>
               <option value="has">🟥 Có tay to (đỏ &gt; 0) ({rows.filter((r) => (r.banker ?? 0) > 0).length})</option>
               {BANKER_STATES.map(([l, icon]) => <option key={l} value={l}>{icon} {l} ({rows.filter((r) => r.banker_label === l).length})</option>)}
             </select>
-            <label className="muted">GT ≥ <input id="minliq" type="number" value={minLiq} onChange={(e) => setMinLiq(+e.target.value)} style={{ width: 70 }} /> tỷ</label>
+            <label className="muted" style={{ whiteSpace: "nowrap" }}>GT ≥ <input id="minliq" type="number" value={minLiq} onChange={(e) => setMinLiq(+e.target.value)} style={{ width: 70 }} /> tỷ</label>
             <button className="btn" onClick={toggleFull} title={full ? "Thoát toàn màn hình (Esc)" : "Phóng to bảng toàn màn hình"}
               aria-label={full ? "Thoát toàn màn hình" : "Phóng to toàn màn hình"} style={{ padding: "0 9px" }}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
