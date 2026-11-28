@@ -69,6 +69,10 @@ CREATE TABLE IF NOT EXISTS rank_daily (           -- Top tiềm năng mỗi phi�
   date TEXT NOT NULL, sym TEXT NOT NULL, total INT, w INT, t INT, f INT, eligible INT,   -- điểm % tổng + 3 mục; eligible = có điểm mua
   PRIMARY KEY (date, sym)
 );
+CREATE TABLE IF NOT EXISTS rank_bt (              -- kiểm chứng lịch sử Top tiềm năng theo giai đoạn (app.rank_bt); lợi nhuận %/hold phiên
+  period TEXT PRIMARY KEY, months INT, top_n INT, hold INT, top_ret REAL, elig_ret REAL, liq_ret REAL, vni_ret REAL,
+  beat_pct REAL, top_win REAL, ic REAL, ic_w REAL, ic_t REAL, ic_f REAL, updated TEXT
+);
 CREATE TABLE IF NOT EXISTS watchlist (
   sym TEXT PRIMARY KEY, note TEXT, added TEXT DEFAULT (date('now'))
 );

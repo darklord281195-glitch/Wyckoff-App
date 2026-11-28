@@ -5,6 +5,10 @@ chcp 65001 >nul
 cd /d "%~dp0.."
 if not exist logs mkdir logs
 del /q logs\review-telegram.txt 2>nul
+REM Kiem chung lich su Top tiem nang (bang rank_bt cho trang Top 10); loi o buoc nay khong chan phan xem lai
+pushd backend
+.venv\Scripts\python.exe -X utf8 -m app.rank_bt > ..\logs\rank-bt-last.txt 2>&1
+popd
 set PY=backend\.venv\Scripts\python.exe -X utf8 -c
 %PY% "import sys; sys.path.insert(0, 'backend'); from app.db import connect; from app.core.paper import review_data; open('logs/review-data.txt', 'w', encoding='utf-8').write(review_data(connect()))"
 type scripts\weekly-review.md | claude -p --max-turns 40 --allowedTools "Read" "Grep" "Glob" "Edit(./logs/**)" "Write(./logs/**)" > logs\review-last-run.txt 2>&1
