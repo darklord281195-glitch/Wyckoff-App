@@ -7,6 +7,25 @@ import IntradayCard from "@/components/IntradayCard";
 import { api, Market, Row, Signal, GROUP_LABEL, STAGE_LABEL, fullDate, num, pct, price } from "@/lib/api";
 
 type SortKey = "sym" | "stage" | "chg" | "rs20" | "rs60" | "liq" | "dist" | "ready" | "rr" | "fx10" | "banker";
+/** Giải thích từng cột (hiện khi rê chuột vào tên cột) */
+const TIPS: Record<string, string> = {
+  "Mã": "Mã cổ phiếu và sàn niêm yết.",
+  "Pha": "Pha Wyckoff hiện tại. B/C: đang tích lũy trong vùng; sát trần: giá cách cận trên vùng ≤ 6%; D: đã bứt khỏi vùng (SOS); dưới hỗ trợ: thủng đáy vùng. Chữ nhỏ bên cạnh là sự kiện gần nhất (ST, Spring, LPS…); dấu * = đợt giảm trước đó yếu.",
+  "Giá": "Giá đóng cửa phiên quét gần nhất (đồng).",
+  "%": "Thay đổi giá so với phiên trước.",
+  "Điểm": "Điểm sẵn sàng tăng 0–100 của vùng tích lũy (phát hiện sớm, trước khi bứt lên), cộng từ 5 phần, mỗi phần tối đa 20:\n• Cung cạn: KL 10 phiên gần nhất so với KL quanh đáy SC (≤ 50% = 20)\n• Đáy nâng dần (12) + có Spring KL thấp (8)\n• Vị trí trong vùng: ở 3/4 trên = 20, nửa trên = 10\n• RS: mạnh hơn VNINDEX 20 phiên (10) và 60 phiên (10)\n• Độ dài vùng tích lũy: ≥ 40 phiên = 20, ≥ 25 = 10\nTừ 70 điểm và cách trần ≤ 8% thì được đánh dấu 'sớm'. Điểm cao chưa phải tín hiệu mua: vẫn chờ điểm vào của kế hoạch.",
+  "Vùng vào": "Vùng giá mua theo kế hoạch giao dịch. 🎯 = giá hiện tại đang nằm trong vùng. Mua trên vùng = mua đuổi.",
+  "Cắt lỗ": "Giá cắt lỗ của kế hoạch: thủng mức này thì kịch bản sai, bán.",
+  "Lời/lỗ": "Tỷ lệ lời/lỗ = (mục tiêu Nhân–Quả − giá vào) / (giá vào − cắt lỗ). Dưới 2 thì kế hoạch không mua.",
+  "So trần": "Khoảng cách từ giá hiện tại tới trần vùng tích lũy (đỉnh AR, kháng cự). −10% nghĩa là còn 10% nữa mới chạm trần; số dương là đã vượt trần.",
+  "RS20": "Sức mạnh tương đối 20 phiên: % tăng giảm của mã trừ % của VNINDEX trong 20 phiên. Dương = khỏe hơn thị trường.",
+  "RS60": "Sức mạnh tương đối 60 phiên (khoảng 3 tháng), cách tính như RS20.",
+  "GT (tỷ)": "Giá trị giao dịch trung bình 20 phiên, tỷ đồng/ngày. Dưới 10 tỷ: khó mua bán khối lượng lớn, trượt giá cao.",
+  "NN 10p (tỷ)": "Khối ngoại mua ròng (+) / bán ròng (−) cộng dồn 10 phiên gần nhất, tỷ đồng.",
+  "Banker": "MCDX Plus: phần cột đỏ ('tay to', RSI 50 phiên) theo % cột, ▲▼ là tăng/giảm so với 5 phiên trước, dòng dưới là trạng thái. 0% = xu hướng dài hạn chưa tăng. Chỉ để tham khảo, không phải dòng tiền thật. '–': lần quét cuối chưa có số liệu MCDX.",
+  "Ghi chú": "Diễn biến gần đây: bật/lùi bao nhiêu % từ đáy/đỉnh nào, KL lùi lớn, chuỗi đỉnh hạ (cầu yếu) và mức giá phá chuỗi.",
+};
+
 const isEarly = (r: Row) => (r.stage === "BC" || r.stage === "near") && (r.ready ?? 0) >= 70 && (r.dist ?? -99) >= -8;
 const STAGE_ORDER: Record<string, number> = { D: 0, near: 1, E: 2, BC: 3, below: 4, failed: 5, new: 6 };
 const LIGHT_VN: Record<string, string> = { green: "Đèn xanh", yellow: "Đèn vàng", red: "Đèn đỏ" };
@@ -88,9 +107,13 @@ export default function Home() {
   }, [rows, group, stage, minLiq, sort, q]);
 
   const th = (k: SortKey, label: string, n = false) => (
-    <th className={n ? "n" : undefined} onClick={() => setSort((s) => ({ k, desc: s.k === k ? !s.desc : k !== "sym" && k !== "stage" }))}>
-      {label}{sort.k === k ? (sort.desc ? " ▼" : " ▲") : ""}
+    <th className={n ? "n" : undefined} title={TIPS[label] + "\n(Bấm để sắp xếp)"}
+      onClick={() => setSort((s) => ({ k, desc: s.k === k ? !s.desc : k !== "sym" && k !== "stage" }))}>
+      <span className="tip">{label}</span>{sort.k === k ? (sort.desc ? " ▼" : " ▲") : ""}
     </th>
+  );
+  const plain = (label: string, n = false) => (
+    <th className={n ? "n" : undefined} title={TIPS[label]}><span className="tip">{label}</span></th>
   );
 
   if (err) return <div className="card">Không kết nối được backend ({err}). Hãy chạy <code>scripts\start.bat</code>.</div>;
@@ -185,9 +208,9 @@ export default function Home() {
           <table className="right">
             <thead>
               <tr>
-                {th("sym", "Mã")}{th("stage", "Pha")}<th className="n">Giá</th>{th("chg", "%", true)}{th("ready", "Điểm", true)}
-                <th className="n">Vùng vào</th><th className="n">Cắt lỗ</th>{th("rr", "Lời/lỗ", true)}
-                {th("dist", "So trần", true)}{th("rs20", "RS20", true)}{th("rs60", "RS60", true)}{th("liq", "GT (tỷ)", true)}{th("fx10", "NN 10p (tỷ)", true)}{th("banker", "Banker", true)}<th>Ghi chú</th>
+                {th("sym", "Mã")}{th("stage", "Pha")}{plain("Giá", true)}{th("chg", "%", true)}{th("ready", "Điểm", true)}
+                {plain("Vùng vào", true)}{plain("Cắt lỗ", true)}{th("rr", "Lời/lỗ", true)}
+                {th("dist", "So trần", true)}{th("rs20", "RS20", true)}{th("rs60", "RS60", true)}{th("liq", "GT (tỷ)", true)}{th("fx10", "NN 10p (tỷ)", true)}{th("banker", "Banker", true)}{plain("Ghi chú")}
               </tr>
             </thead>
             <tbody>
