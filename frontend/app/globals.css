@@ -107,6 +107,7 @@ tbody tr:hover { background: var(--accent-soft); }
 tbody tr:last-child td { border-bottom: 0; }
 tbody tr.on { background: var(--accent-soft); }
 table.right td.n, table.right th.n { text-align: right; }
+table.compact th, table.compact td { padding: 9px 8px; }   /* bảng nhiều cột (Top 10): khoảng đệm hẹp hơn */
 th .tip { text-decoration: underline dotted; text-decoration-color: var(--muted); text-underline-offset: 3px; cursor: help; }
 /* bảng xếp dọc trên điện thoại: mỗi dòng thành một khối (ô đầu cả dòng, ô có data-label hiện nhãn) */
 @media (max-width: 640px) {

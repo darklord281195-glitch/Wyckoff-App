@@ -5,6 +5,7 @@ import HealthDot from "./HealthDot";
 
 const LINKS = [
   { href: "/", label: "Tổng quan" },
+  { href: "/top", label: "Top 10" },
   { href: "/watchlist", label: "Danh mục" },
   { href: "/dong-tien", label: "Dòng tiền" },
   { href: "/ket-qua", label: "Kết quả" },
