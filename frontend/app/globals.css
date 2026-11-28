@@ -74,6 +74,7 @@ h3 { letter-spacing: -.01em; }
 .btn { padding: 0 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background .12s, border-color .12s; }
 .btn:hover:not(:disabled) { background: var(--soft); border-color: #cfd6e0; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.primary:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); filter: brightness(.9); }   /* nút đang bật: giữ nền xanh, chỉ tối đi */
 .btn:disabled { opacity: .55; cursor: default; }
 input:not([type="checkbox"]):not([type="radio"]) { padding: 0 10px; }
 select.btn { padding: 0 30px 0 11px; appearance: none; background-image:
