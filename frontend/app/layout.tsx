@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import HealthDot from "@/components/HealthDot";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -25,6 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Link href="/dong-tien" className="link">Dòng tiền</Link>
             <Link href="/ket-qua" className="link">Kết quả</Link>
             <Link href="/symbol/VNINDEX" className="link">VNINDEX</Link>
+            <HealthDot />
           </nav>
           {children}
           <p className="muted" style={{ fontSize: 12.5 }}>

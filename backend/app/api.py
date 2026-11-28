@@ -20,6 +20,7 @@ from .core import paper as paper_mod
 from .universe import GROUP_NAMES, INDEX, group_of, watchlist, listing, sectors
 from . import scan as scan_mod
 from . import intraday as intraday_mod
+from . import health as health_mod
 from .core.signals import PRIORITY
 from .backtest import BUY_FEE, SELL_FEE
 
@@ -215,6 +216,12 @@ def symbol(code: str, at: dt.date | None = None, start: dt.date | None = Query(N
                 ohlcv=full,
                 analysis=res, signals=signals(120, code, at), at=at, start=start, foreign=fx, foreign_error=fx_err, plan_stats=dict(st) if st else None,
                 scenario_stats=dict(light=light, rows=sc), fundamentals=fundamentals, in_watchlist=code in watchlist(conn))
+
+
+@app.get("/api/health")
+def health_get():
+    """Sức khỏe hệ thống: từng mục (quét, dữ liệu, lỗi tải, nguồn dự phòng, task Windows, sao lưu...) và mức tệ nhất."""
+    return health_mod.status(conn)
 
 
 @app.get("/api/symbols/{code}/check")
@@ -465,8 +472,15 @@ def pos_del(pid: int):
 
 
 def _run_scan(dry_run: bool):
+    started = health_mod.now_vn().isoformat(timespec="seconds")
     try:
-        _scan_state["last"] = scan_mod.run(dry_run=dry_run)
+        _scan_state["last"] = r = scan_mod.run(dry_run=dry_run)
+        if not dry_run:                          # nút Quét lại trên web: ghi như lần quét tự động
+            health_mod.record(conn, "scan", started, "skipped" if r.get("skipped") else "ok", scan_mod.job_detail(r))
+    except Exception as e:
+        if not dry_run:
+            health_mod.record(conn, "scan", started, "error", dict(error=str(e)[:500]))
+        raise
     finally:
         _scan_state["running"] = False
 

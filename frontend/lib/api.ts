@@ -77,6 +77,9 @@ export type SectorRow = { icb: string; name: string; n: number; rs20: number | n
 /** Một chiến lược trong backtest danh mục: % tổng, % năm, sụt giảm lớn nhất, Sharpe, % thời gian có vị thế. */
 export type PfMetric = { total: number; cagr: number; mdd: number; sharpe: number | null; exposure: number;
   yearly: Record<string, number>; trades?: number };
+/** Sức khỏe hệ thống (/api/health): mỗi mục ok / warn / error; level = mức tệ nhất; expected = phiên lẽ ra đã quét. */
+export type HealthCheck = { key: string; label: string; level: "ok" | "warn" | "error"; detail: string };
+export type Health = { at: string; expected: string; level: "ok" | "warn" | "error"; checks: HealthCheck[] };
 /** Một điều kiện của "Kịch bản mua đẹp": ok = đạt / chưa đạt / null = không áp dụng cho loại kế hoạch này. */
 export type CheckItem = { key: string; label: string; ok: boolean | null; detail: string; why: string };
 /** Bảng kiểm tra trước khi mua (/api/symbols/{mã}/check). verdict: buy / half (đèn vàng) / red (đèn đỏ) / wait / no. */

@@ -60,6 +60,11 @@ CREATE TABLE IF NOT EXISTS paper_trades (         -- sổ lệnh thử nghiệm:
   slip REAL,                                       -- trượt giá mỗi chiều lúc mua (tỷ lệ, costs.slip_for); NULL = mức cố định cũ
   UNIQUE (d, sym)
 );
+CREATE TABLE IF NOT EXISTS job_runs (             -- mỗi lần chạy tác vụ tự động (scan / auto_buy / backup) cho trang Hệ thống
+  id INTEGER PRIMARY KEY, job TEXT NOT NULL, started TEXT, finished TEXT,
+  status TEXT,                                     -- ok / skipped (nghỉ lễ) / error
+  detail TEXT                                      -- JSON: phiên, số mã, mã lỗi, mã dùng nguồn dự phòng, lỗi...
+);
 CREATE TABLE IF NOT EXISTS watchlist (
   sym TEXT PRIMARY KEY, note TEXT, added TEXT DEFAULT (date('now'))
 );

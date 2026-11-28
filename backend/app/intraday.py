@@ -24,7 +24,7 @@ from .core.plan import BUY_KINDS
 from .core.costs import slip_for
 from .core import paper
 from .universe import INDEX, listing
-from . import notify
+from . import notify, health
 
 VN = dt.timezone(dt.timedelta(hours=7))
 EVERY = 300                                       # giây giữa hai lần kiểm tra
@@ -321,10 +321,15 @@ def main():
         if in_session(now):
             jobs = () if a.only_auto else (run_once,)
             for job in jobs + ((auto_buy,) if in_auto(now) else ()):
+                started = now.isoformat(timespec="seconds")
                 try:
-                    job(conn, a.dry_run)
+                    out = job(conn, a.dry_run)
+                    if job is auto_buy and not a.dry_run:      # trang Hệ thống: hôm nay tự mua thử nghiệm đã chạy chưa
+                        health.record(conn, "auto_buy", started, "ok", dict(hits=len(out or [])))
                 except Exception as e:            # mạng lỗi một lần không được làm dừng cả ngày
                     print("Lỗi:", e)
+                    if job is auto_buy and not a.dry_run:
+                        health.record(conn, "auto_buy", started, "error", dict(error=str(e)[:300]))
         time.sleep(EVERY)
 
 

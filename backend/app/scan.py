@@ -21,6 +21,8 @@ from .core import risk as risk_mod
 from .core import sectors as sectors_mod
 from .core import fundamentals as fund
 from .core import paper
+from .core import data as data_mod
+from . import health
 
 LIGHT_ICON = {"green": "🟢", "yellow": "🟡", "red": "🔴", "?": "⚪"}
 
@@ -46,6 +48,8 @@ def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log
     conn = connect()
     if at:
         refresh, dry_run, photos = False, True, False
+    if refresh:
+        data_mod.FALLBACK_USED.clear()            # mã phải lấy giá từ nguồn dự phòng trong lần quét này
     IDX = _upto(get_ohlcv(conn, INDEX, 4000 if at else 600, refresh=refresh), at)
     if not IDX or (at and IDX[-1]["d"] != at):
         raise ValueError(f"Phiên {at} không có nến VNINDEX (không phải ngày giao dịch hoặc chưa có dữ liệu)")
@@ -151,6 +155,11 @@ def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log
              len(results), skipped, scan_date)
 
     msg = format_message(scan_date, market, all_sigs, results, errors, hidden, kinds)
+    fb = sorted(data_mod.FALLBACK_USED) if refresh else []
+    if fb:
+        log.warning("VNDirect lỗi: %d mã lấy giá từ nguồn dự phòng DNSE: %s", len(fb), ", ".join(fb))
+        msg += (f"\n\n⚠️ VNDirect lỗi: {len(fb)} mã lấy giá từ nguồn dự phòng (DNSE): {', '.join(fb[:10])}"
+                + ("…" if len(fb) > 10 else ""))
     if not at:                    # sổ lệnh thử nghiệm (app tự mua 14h10): luật bán làm gì hôm nay
         try:
             ev = paper.events_on(conn, scan_date)
@@ -247,6 +256,12 @@ def run_with_retry(do, log):
     return r
 
 
+def job_detail(r: dict) -> dict:
+    """Chi tiết một lần quét cho bảng job_runs (trang Hệ thống, watchdog)."""
+    return dict(date=r["date"], n=r["n"], signals=len(r["signals"]), errors=r["errors"][:100],
+                n_errors=len(r["errors"]), fallback=sorted(data_mod.FALLBACK_USED))
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--groups"); ap.add_argument("--symbols")
@@ -269,13 +284,25 @@ def main():
                     symbols=[s.strip().upper() for s in a.symbols.split(",")] if a.symbols else None, log=log, at=d)
             print(f"{d}: {r['n']} mã · {len(r['signals'])} tín hiệu · lỗi {len(r['errors'])}", flush=True)
         return
-    run_with_retry(lambda: run(groups=a.groups.split(",") if a.groups else None,
-                               symbols=[s.strip().upper() for s in a.symbols.split(",")] if a.symbols else None,
-                               dry_run=a.dry_run, photos=not a.no_photo, refresh=not a.offline, log=log), log)
+    started = health.now_vn().isoformat(timespec="seconds")
     try:
-        log.info("Sao lưu danh mục: %s", backup.backup())
+        r = run_with_retry(lambda: run(groups=a.groups.split(",") if a.groups else None,
+                                       symbols=[s.strip().upper() for s in a.symbols.split(",")] if a.symbols else None,
+                                       dry_run=a.dry_run, photos=not a.no_photo, refresh=not a.offline, log=log), log)
+    except Exception as e:                       # ghi lại để trang Hệ thống / watchdog thấy, rồi vẫn báo lỗi như cũ
+        if not a.dry_run:
+            health.record(connect(), "scan", started, "error", dict(error=str(e)[:500]))
+        raise
+    if not a.dry_run and not a.symbols and not a.groups:        # chỉ lần quét đầy đủ mới tính là "đã quét phiên"
+        health.record(connect(), "scan", started, "skipped" if r.get("skipped") else "ok", job_detail(r))
+    started = health.now_vn().isoformat(timespec="seconds")
+    try:
+        path = backup.backup()
+        log.info("Sao lưu danh mục: %s", path)
+        health.record(connect(), "backup", started, "ok", dict(path=str(path)))
     except Exception as e:                       # sao lưu lỗi không được làm hỏng lần quét
         log.warning("Không sao lưu được danh mục: %s", e)
+        health.record(connect(), "backup", started, "error", dict(error=str(e)[:300]))
 
 
 if __name__ == "__main__":

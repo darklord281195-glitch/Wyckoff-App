@@ -4,7 +4,7 @@ Quét cổ phiếu Việt Nam theo phương pháp Wyckoff mỗi cuối ngày. �
 
 - **Backend:** Python 3.12, FastAPI, SQLite (`backend/`)
 - **Frontend:** Next.js 15, lightweight-charts (`frontend/`)
-- **Dữ liệu:** giá ngày đã điều chỉnh từ VNDirect dchart (API không chính thức)
+- **Dữ liệu:** giá ngày đã điều chỉnh từ VNDirect dchart (API không chính thức); VNDirect lỗi thì lấy phiên mới từ nguồn dự phòng DNSE (xem *Sức khỏe hệ thống*)
 - **Phạm vi quét:** toàn bộ cổ phiếu niêm yết **HOSE + HNX** (khoảng 710 mã), cộng các nhóm theo dõi tự chọn (`universe.py`) và watchlist. Danh sách mã và ngành ICB cấp 2 tự cập nhật mỗi tuần từ VNDirect finfo. Tải dữ liệu song song 6 luồng, cả lần quét mất khoảng 40 giây. Tín hiệu chỉ báo cho mã có thanh khoản ≥ `MIN_LIQ_BIL`.
 
 > Bộ lọc tự động, cần xem lại biểu đồ trước khi quyết định. Không phải khuyến nghị đầu tư.
@@ -31,13 +31,22 @@ copy ..\.env.example ..\.env
 | Quét thủ công + gửi Telegram | `scripts\scan.bat` |
 | Quét thử, không gửi | `scripts\scan.bat --dry-run` |
 | Chỉ một số mã / ngành | `scripts\scan.bat --symbols TCH,DPG` · `--groups ck,bds` |
-| Tự động: tự mua thử nghiệm 14:05–14:29 + quét 15:30, thứ 2–6 (cảnh báo giá 5 phút/lần chỉ chạy khi gọi `intraday.bat --loop`) | `powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1` |
+| Tự động: tự mua thử nghiệm 14:05–14:29 + quét 15:30 + kiểm tra hệ thống 16:30, thứ 2–6 (cảnh báo giá 5 phút/lần chỉ chạy khi gọi `intraday.bat --loop`) | `powershell -ExecutionPolicy Bypass -File scripts\register-task.ps1` |
+| Kiểm tra sức khỏe hệ thống (in ra màn hình; `--notify` gửi Telegram khi có lỗi) | `scripts\health.bat` |
 | Cảnh báo trong phiên, chạy thử 1 lần | `scripts\intraday.bat --dry-run` |
 | Tạo lại kết quả các phiên cũ (không tải dữ liệu, không gửi Telegram) | `scripts\scan.bat --from 2026-11-01 --to 2026-11-19` |
 
 Log mỗi lần quét: `logs\scan-YYYYMMDD.log`.
 
 **Ngày nghỉ lễ:** lần quét tự động thấy VNINDEX chưa có nến hôm nay thì thử lại sau 10 và 20 phút. Vẫn không có thì bỏ qua (không quét, không gửi tín hiệu) và gửi một tin ⚠️ trên Telegram. Nếu hôm đó thật ra có giao dịch (VNDirect cập nhật trễ), mở web bấm Quét lại.
+
+**Sức khỏe hệ thống** (trang **Hệ thống**, chấm màu trên thanh điều hướng; `app/health.py`): mỗi mục ✅ / ⚠️ / ⛔:
+- quét cuối ngày đã có cho phiên gần nhất chưa (sau 16:00 ngày thường phải có phiên hôm nay; lần quét bị bỏ qua vì chưa có nến VNINDEX được coi là nghỉ lễ, chỉ ⚠️);
+- dữ liệu giá: nến VNINDEX mới nhất, các mã thanh khoản chưa có phiên đó; số mã lỗi tải trong lần quét cuối;
+- **nguồn dữ liệu**: khi VNDirect lỗi hết lượt thử, app lấy nến ngày từ **DNSE** (cùng đơn vị giá). Chỉ dùng để **nối thêm phiên mới**: các phiên trùng phải khớp giá đóng cửa trong DB (lệch ≤ 0,5%, tránh trộn giá đã/chưa điều chỉnh), KL quy đổi theo tỷ lệ các phiên trùng (VNINDEX của DNSE tính KL cao hơn ~30%); không bao giờ tải lại toàn bộ lịch sử từ DNSE. Tin Telegram cuối ngày ghi rõ mã nào phải dùng nguồn dự phòng;
+- khối ngoại, BCTC, bản sao lưu mới nhất, Telegram đã cấu hình chưa;
+- task Windows "Wyckoff Scanner / Intraday / Weekly Review / Watchdog" (lần chạy cuối, mã kết quả, lần chạy tới; đọc bằng PowerShell nên không phụ thuộc ngôn ngữ Windows), báo cáo xem lại tuần, hôm nay đã tự mua thử nghiệm chưa.
+- Mỗi lần quét / tự mua / sao lưu được ghi vào bảng `job_runs` (cả lần lỗi). Task **"Wyckoff Watchdog"** (16:30 thứ 2–6) chạy `health --notify`: có mục ⛔ thì gửi Telegram, tối đa 1 lần/ngày. Chỉ đăng ký task trên máy chạy quét.
 
 **Xem lại phiên cũ.** Mỗi lần quét lưu kết quả theo ngày phiên (ngày của nến VNINDEX cuối, không phải ngày bấm quét).
 - Trang Tổng quan có ô **Phiên** để chọn các phiên đã quét. Khi xem phiên cũ thì nút Quét lại bị ẩn.

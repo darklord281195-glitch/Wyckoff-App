@@ -27,3 +27,12 @@ $settings3 = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimi
 Register-ScheduledTask -TaskName "Wyckoff Weekly Review" -Action $action3 -Trigger $trigger3 -Settings $settings3 `
     -Description "Xem lai so lenh thu nghiem hang tuan" -Force | Out-Null
 Write-Host "Da dang ky task 'Wyckoff Weekly Review' (16:00 thu 6)."
+
+# Kiem tra suc khoe he thong: 16:30 thu 2-6 (chua quet phien hom nay, loi tai du lieu, task loi...) -> gui Telegram neu co loi. Go: Unregister-ScheduledTask -TaskName "Wyckoff Watchdog"
+$bat4 = Join-Path $PSScriptRoot "health.bat"
+$action4 = New-ScheduledTaskAction -Execute "cmd.exe" -Argument "/c `"$bat4`" --notify"
+$trigger4 = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At 4:30PM
+$settings4 = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 10) -RunOnlyIfNetworkAvailable
+Register-ScheduledTask -TaskName "Wyckoff Watchdog" -Action $action4 -Trigger $trigger4 -Settings $settings4 `
+    -Description "Kiem tra suc khoe he thong Wyckoff, bao Telegram khi co loi" -Force | Out-Null
+Write-Host "Da dang ky task 'Wyckoff Watchdog' (16:30, thu 2-6)."
