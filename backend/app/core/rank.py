@@ -1,13 +1,22 @@
-"""Top tiềm năng: chấm mỗi mã theo 3 mục ngang nhau (Wyckoff · Kỹ thuật & Cơ bản · Dòng tiền), mỗi mục 0–100.
+"""Top tiềm năng.
+
+Điểm xếp hạng (từ 28/11/2026, chọn theo kiểm chứng `python -m app.rank_bt` 2019–2026): trong mỗi phiên, các mã đủ
+thanh khoản trừ nhóm EXCLUDE_TAGS được xếp phần trăm theo 3 thành phần (FACTORS), điểm % = trung bình 3 thành phần:
+  - Cung cạn: KL TB 10 phiên / KL TB 60 phiên càng thấp càng tốt (tinh thần "cạn cung" của Wyckoff);
+  - Biến động thấp: độ lệch chuẩn lợi nhuận ngày 20 phiên càng thấp càng tốt;
+  - Điểm sẵn sàng của kế hoạch (core/plan.readiness) càng cao càng tốt.
+Kiểm chứng (top 10 so với TB mọi mã đủ thanh khoản, 20 phiên): 2019–23 +1,17%, 2024–26 +1,46%; công thức 3 mục cũ
+−0,32% / +1,28%. RSI/MACD/khối ngoại đổi chiều giữa hai giai đoạn nên không tính điểm.
+
+3 mục cũ (Wyckoff · Kỹ thuật & Cơ bản · Dòng tiền) vẫn được chấm để hiện tham khảo, KHÔNG tính vào điểm xếp hạng.
+Mỗi mục trả dict(score, items); mỗi item dict(key, label, text, pts, max, tone), tone ∈ good / warn / bad / info.
 
 Đây là bảng xếp hạng để tham khảo, KHÔNG phải luật mua: không đổi tín hiệu, luật ẩn theo đèn hay tự mua thử nghiệm.
-Trọng số và thang điểm là ước lượng; kiểm chứng lịch sử bằng `python -m app.rank_bt`.
-
-Mỗi mục trả dict(score, items); mỗi item dict(key, label, text, pts, max, tone), tone ∈ good / warn / bad / info
-(frontend hiển thị theo cấu trúc chung này).
 """
 import datetime as dt
 import json
+from bisect import bisect_left, bisect_right
+from statistics import pstdev
 
 from ..config import MIN_LIQ_BIL
 from ..fmt import num, pct, price as _p
@@ -17,7 +26,11 @@ from .foreign import net_sum
 from .indicators import rsi, macd, ichimoku
 from .proprietary import prop_net
 
-WEIGHTS = dict(wyckoff=1 / 3, tech=1 / 3, flow=1 / 3)   # 3 mục ngang nhau (người dùng chốt)
+# Điểm xếp hạng: nhóm bị loại (kiểm chứng 2019–2026: kém TB thị trường ở cả hai giai đoạn) và 3 thành phần (khóa, nhãn,
+# chiều: −1 = thấp là tốt). Xem docstring.
+EXCLUDE_TAGS = ("B/C", "SOS hỏng", "dưới hỗ trợ")
+FACTORS = (("dry", "Cung cạn", -1), ("vol", "Biến động thấp", -1), ("ready", "Điểm sẵn sàng", 1))
+WEIGHTS = dict(wyckoff=1 / 3, tech=1 / 3, flow=1 / 3)   # 3 mục cũ (chỉ tham khảo, không tính vào điểm xếp hạng)
 FX_SCALE = 10       # khối ngoại: mua ròng 20 phiên = ±10% GT giao dịch 20 phiên thì đạt điểm tối đa / tối thiểu
 PROP_SCALE = 3      # tự doanh: ±3% (phân bố 27/11/2026: phần lớn trong ±2%; khối ngoại p10/p90 = −13,8% / +6,4%)
 MIN_BARS = 80       # ít nến hơn: phần kỹ thuật thiếu dữ liệu cho nửa điểm
@@ -228,6 +241,50 @@ def score_symbol(r, bars, fund_m, fx20, fx5, prop, stats_by_plan=None) -> dict:
     return dict(total=total, pillars=pillars, highlights=good[:3], warnings=[x for x in items if x["tone"] == "bad"])
 
 
+# ---------------------------------------------------------------- Điểm xếp hạng (3 thành phần)
+def factors(r: dict, bars: list[dict]) -> dict:
+    """Giá trị thô: dry = KL TB 10 phiên / KL TB 60 phiên, vol = độ lệch chuẩn lợi nhuận ngày 20 phiên (%),
+    ready = điểm sẵn sàng của kế hoạch. None khi thiếu dữ liệu."""
+    v, cl, n = [b["v"] for b in bars], [b["c"] for b in bars], len(bars)
+    v60 = sum(v[-60:]) / 60 if n >= 60 else 0
+    rets = [cl[j] / cl[j - 1] - 1 for j in range(max(1, n - 20), n) if cl[j - 1]]
+    return dict(dry=round(sum(v[-10:]) / 10 / v60, 3) if v60 else None,
+                vol=round(pstdev(rets) * 100, 3) if len(rets) >= 10 else None,
+                ready=((r.get("plan") or {}).get("ready") or {}).get("score"))
+
+
+def pct_scores(raws: list[dict]) -> list[dict]:
+    """Điểm phần trăm 0–100 của từng thành phần trong nhóm được xếp cùng phiên (hạng trung bình khi bằng nhau; thiếu
+    dữ liệu = 50) và total = TB 3 thành phần, làm tròn."""
+    out = [dict() for _ in raws]
+    for key, _, sign in FACTORS:
+        vals = sorted(sign * x[key] for x in raws if x.get(key) is not None)
+        for o, x in zip(out, raws):
+            if x.get(key) is None or not vals:
+                o[key] = 50.0
+                continue
+            y = sign * x[key]
+            lo, hi = bisect_left(vals, y), bisect_right(vals, y)
+            o[key] = round(100 * (lo + (hi - lo) / 2) / len(vals), 1)
+    for o in out:
+        o["total"] = int(round(sum(o[k] for k, _, _ in FACTORS) / len(FACTORS)))
+    return out
+
+
+def factor_items(raw: dict, sc: dict) -> list[dict]:
+    """3 thành phần dạng item (pts = điểm phần trăm, max = 100) để hiện trên trang."""
+    text = dict(
+        dry=lambda x: f"KL 10 phiên = {num(x, 2)}× TB 60 phiên" + (" (đang cạn)" if x < 0.8 else " (đang tăng)" if x > 1.2 else ""),
+        vol=lambda x: f"dao động TB {num(x, 1)}%/phiên trong 20 phiên",
+        ready=lambda x: f"{x}/100")
+    out = []
+    for key, label, _ in FACTORS:
+        x, p = raw.get(key), sc[key]
+        t = "chưa đủ dữ liệu (tính 50)" if x is None else text[key](x)
+        out.append(_item(key, label, f"{t} · hơn {num(p, 0)}% số mã", p, 100))
+    return out
+
+
 def eligible(r: dict) -> bool:
     """Có điểm mua: kế hoạch có vùng vào và cắt lỗ."""
     p = r.get("plan") or {}
@@ -251,14 +308,16 @@ def plan_stats(conn) -> dict:
 
 
 def _sort_key(x):
-    return (-x["total"], -x["pillars"]["wyckoff"]["score"], x["sym"])
+    """Nhóm được xếp trước (điểm giảm dần, rồi cung cạn), nhóm bị loại cuối bảng."""
+    return (x["excluded"], -(x["total"] or 0), -((x.get("parts") or {}).get("dry") or 0), x["sym"])
 
 
 LIGHT_WARN = {"red": "Đèn đỏ: luật app không mở lệnh mới", "yellow": "Đèn vàng: luật app ẩn LPS/D sớm"}
 
 
 def rank(conn, d: str, min_liq: float = MIN_LIQ_BIL, light: str | None = None) -> list[dict]:
-    """Chấm mọi mã của phiên quét d có GT TB20 ≥ min_liq (bỏ VNINDEX); sắp xếp điểm giảm dần, rồi điểm Wyckoff."""
+    """Chấm mọi mã của phiên quét d có GT TB20 ≥ min_liq (bỏ VNINDEX). Mã thuộc EXCLUDE_TAGS: excluded=True, không có
+    điểm, đứng cuối. Còn lại: điểm % = TB phần trăm 3 thành phần trong nhóm; 3 mục cũ ở `pillars` chỉ để tham khảo."""
     from ..universe import listing
     lst, stats = listing(conn), plan_stats(conn)
     rows = []
@@ -267,8 +326,10 @@ def rank(conn, d: str, min_liq: float = MIN_LIQ_BIL, light: str | None = None) -
         if not r or (r.get("liq") or 0) < min_liq:
             continue
         fm = fund.metrics_at(fund.load(conn, sym), d)
-        s = score_symbol(r, bars_until(conn, sym, d), fm, net_sum(conn, sym, d, 20), net_sum(conn, sym, d, 5),
-                         prop_net(conn, sym, d), stats)
+        bars = bars_until(conn, sym, d)
+        s = score_symbol(r, bars, fm, net_sum(conn, sym, d, 20), net_sum(conn, sym, d, 5), prop_net(conn, sym, d), stats)
+        # cảnh báo: chỉ phần trừ điểm của Wyckoff (đỉnh hạ, phân phối) + đèn; RSI/MACD/khối ngoại không còn tính điểm
+        s["warnings"] = [x for x in s["pillars"]["wyckoff"]["items"] if x["tone"] == "bad" and x["key"] in ("lh", "distrib")]
         p, info = r.get("plan") or {}, lst.get(sym) or {}
         t = main_target(p)
         ok = eligible(r)
@@ -282,22 +343,30 @@ def rank(conn, d: str, min_liq: float = MIN_LIQ_BIL, light: str | None = None) -
                          in_zone=p.get("in_zone"),
                          target=dict(k=t["k"], price=t["price"], upside=round((t["price"] / r["c"] - 1) * 100, 1))
                          if t and r.get("c") else None,
-                         liq=r.get("liq"), eligible=ok, **s))
+                         liq=r.get("liq"), eligible=ok, excluded=r.get("tag") in EXCLUDE_TAGS, raw=factors(r, bars),
+                         ref_total=s["total"], pillars=s["pillars"], warnings=s["warnings"], highlights=[],
+                         total=None, parts=None, factors=[]))
+    pool = [x for x in rows if not x["excluded"]]
+    for x, sc in zip(pool, pct_scores([x["raw"] for x in pool])):
+        x["total"], x["parts"] = sc["total"], {k: sc[k] for k, _, _ in FACTORS}
+        x["factors"] = factor_items(x["raw"], sc)
+        x["highlights"] = [it for it in x["factors"] if it["tone"] == "good"]
     rows.sort(key=_sort_key)
-    el = [x["total"] for x in rows if x["eligible"]]
+    el = [x["total"] for x in pool]
     for x in rows:
-        x["pct_rank"] = round(100 * sum(v < x["total"] for v in el) / len(el)) if el else None
+        x["pct_rank"] = round(100 * sum(v < x["total"] for v in el) / len(el)) if el and x["total"] is not None else None
     return rows
 
 
 # ---------------------------------------------------------------- Lưu mỗi phiên + thay đổi
 def save_daily(conn, d: str, light: str | None = None) -> list[dict]:
-    """Chấm phiên d (GT ≥ MIN_LIQ_BIL) và ghi đè snapshot của phiên đó vào rank_daily. Trả các dòng đã chấm."""
+    """Chấm phiên d (GT ≥ MIN_LIQ_BIL) và ghi đè snapshot của phiên đó vào rank_daily (chỉ nhóm được xếp; cột w/t/f
+    = phần trăm cung cạn / biến động thấp / sẵn sàng). Trả mọi dòng đã chấm."""
     rows = rank(conn, d, MIN_LIQ_BIL, light)
     conn.execute("DELETE FROM rank_daily WHERE date=?", (d,))
     conn.executemany("INSERT INTO rank_daily(date,sym,total,w,t,f,eligible) VALUES (?,?,?,?,?,?,?)",
-                     [(d, x["sym"], x["total"], x["pillars"]["wyckoff"]["score"], x["pillars"]["tech"]["score"],
-                       x["pillars"]["flow"]["score"], int(x["eligible"])) for x in rows])
+                     [(d, x["sym"], x["total"], round(x["parts"]["dry"]), round(x["parts"]["vol"]),
+                       round(x["parts"]["ready"]), int(x["eligible"])) for x in rows if not x["excluded"]])
     conn.commit()
     return rows
 
@@ -311,16 +380,17 @@ def compare_date(conn, d: str, vs: str = "prev") -> str | None:
     return ds[-1] if ds else None
 
 
-def order(rows: list[dict], eligible_only: bool = True) -> list[dict]:
-    return [x for x in rows if x["eligible"] or not eligible_only]
+def order(rows: list[dict], eligible_only: bool = False) -> list[dict]:
+    """Nhóm được xếp (bỏ EXCLUDE_TAGS), theo thứ tự của rows; eligible_only: chỉ mã có điểm mua."""
+    return [x for x in rows if not x["excluded"] and (x["eligible"] or not eligible_only)]
 
 
-def positions_of(rows: list[dict], eligible_only: bool = True) -> dict:
+def positions_of(rows: list[dict], eligible_only: bool = False) -> dict:
     """{mã: hạng (từ 1)} theo thứ tự của rows (đã sắp xếp)."""
     return {x["sym"]: i for i, x in enumerate(order(rows, eligible_only), 1)}
 
 
-def positions(conn, d: str, min_liq: float = MIN_LIQ_BIL, eligible_only: bool = True, rows=None) -> dict:
+def positions(conn, d: str, min_liq: float = MIN_LIQ_BIL, eligible_only: bool = False, rows=None) -> dict:
     """{mã: hạng} phiên d: từ rank_daily nếu có (và min_liq = MIN_LIQ_BIL), không thì chấm lại (hoặc dùng rows đã chấm)."""
     if rows is None and min_liq == MIN_LIQ_BIL:
         q = "SELECT sym FROM rank_daily WHERE date=?" + (" AND eligible=1" if eligible_only else "") + \
@@ -331,7 +401,7 @@ def positions(conn, d: str, min_liq: float = MIN_LIQ_BIL, eligible_only: bool = 
     return positions_of(rows if rows is not None else rank(conn, d, min_liq), eligible_only)
 
 
-def changes(cur_rows: list[dict], prev_pos: dict, n: int, eligible_only: bool = True) -> list[dict]:
+def changes(cur_rows: list[dict], prev_pos: dict, n: int, eligible_only: bool = False) -> list[dict]:
     """Gắn prev_pos / new (không nằm trong top n trước đó) vào từng dòng của cur_rows (mọi mã đủ thanh khoản, đã sắp
     xếp). Trả các mã rời top n: dict(sym, prev_pos, pos, total) hoặc dict(sym, prev_pos, reason)."""
     ordered = order(cur_rows, eligible_only)
@@ -340,7 +410,7 @@ def changes(cur_rows: list[dict], prev_pos: dict, n: int, eligible_only: bool = 
         x["new"] = bool(prev_pos) and (x["prev_pos"] is None or x["prev_pos"] > n)
     top = {x["sym"] for x in ordered[:n]}
     pos = {x["sym"]: (i, x) for i, x in enumerate(ordered, 1)}
-    every = {x["sym"] for x in cur_rows}
+    every = {x["sym"]: x for x in cur_rows}
     dropped = []
     for s, p in sorted(prev_pos.items(), key=lambda kv: kv[1]):
         if p > n or s in top:
@@ -348,24 +418,26 @@ def changes(cur_rows: list[dict], prev_pos: dict, n: int, eligible_only: bool = 
         if s in pos:
             dropped.append(dict(sym=s, prev_pos=p, pos=pos[s][0], total=pos[s][1]["total"]))
         else:
-            dropped.append(dict(sym=s, prev_pos=p, reason="không còn điểm mua" if s in every else "không còn đủ thanh khoản"))
+            why = ("không còn đủ thanh khoản" if s not in every else f"nay ở nhóm loại ({every[s]['tag']})"
+                   if every[s]["excluded"] else "không còn điểm mua")
+            dropped.append(dict(sym=s, prev_pos=p, reason=why))
     return dropped
 
 
 def in_top(conn, d: str, n: int = 10, last: int = 20) -> tuple[dict, int]:
-    """({mã: số phiên nằm trong top n (thứ tự mã có điểm mua)}, số phiên đã xét): tối đa `last` snapshot ≤ d."""
+    """({mã: số phiên nằm trong top n}, số phiên đã xét): tối đa `last` snapshot ≤ d."""
     ds = [x[0] for x in conn.execute("SELECT DISTINCT date FROM rank_daily WHERE date<=? ORDER BY date DESC LIMIT ?",
                                      (d, last))]
     cnt: dict = {}
     for day in ds:
-        for (s,) in conn.execute("SELECT sym FROM rank_daily WHERE date=? AND eligible=1 ORDER BY total DESC, w DESC, sym "
-                                 "LIMIT ?", (day, n)):
+        for (s,) in conn.execute("SELECT sym FROM rank_daily WHERE date=? ORDER BY total DESC, w DESC, sym LIMIT ?",
+                                 (day, n)):
             cnt[s] = cnt.get(s, 0) + 1
     return cnt, len(ds)
 
 
 def daily_top(conn, d: str, light: str | None, n: int = 10) -> dict:
-    """Sau lần quét: lưu snapshot phiên d, trả top n mã có điểm mua (cờ new so với phiên trước) + các mã rời top."""
+    """Sau lần quét: lưu snapshot phiên d, trả top n (cờ new so với phiên trước) + các mã rời top."""
     rows = save_daily(conn, d, light)
     prev = compare_date(conn, d, "prev")
     prev_pos = positions(conn, prev) if prev else {}
@@ -387,5 +459,5 @@ def backfill_daily(conn, log=print) -> int:
     todo = [x[0] for x in conn.execute("SELECT DISTINCT date FROM scan_results ORDER BY date") if x[0] not in have]
     for d in todo:
         rows = save_daily(conn, d, light_at(conn, d))
-        log(f"{d}: {len(rows)} mã đủ thanh khoản · {sum(x['eligible'] for x in rows)} mã có điểm mua")
+        log(f"{d}: {len(rows)} mã đủ thanh khoản · {sum(not x['excluded'] for x in rows)} mã được xếp")
     return len(todo)

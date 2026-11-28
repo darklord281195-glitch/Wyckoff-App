@@ -148,11 +148,15 @@ def test_rank_and_daily_changes(tmp_path, monkeypatch):
     _scan(conn, monkeypatch, ds)
     rows = rank.rank(conn, ds[-1], 0, "yellow")
     assert {x["sym"] for x in rows} == set(SYMS)
-    assert [x["total"] for x in rows] == sorted((x["total"] for x in rows), reverse=True)
-    assert all(0 <= x["total"] <= 100 for x in rows)
+    pool = [x for x in rows if not x["excluded"]]
+    assert rows[:len(pool)] == pool                                               # nhóm bị loại đứng cuối
+    assert [x["total"] for x in pool] == sorted((x["total"] for x in pool), reverse=True)
+    assert all(0 <= x["total"] <= 100 and len(x["factors"]) == 3 for x in pool)
+    assert all(x["total"] is None for x in rows if x["excluded"])
     for x in rows:
         r = json.loads(conn.execute("SELECT data FROM scan_results WHERE date=? AND sym=?", (ds[-1], x["sym"])).fetchone()[0])
         assert x["eligible"] == rank.eligible(r)
+        assert x["excluded"] == (r["tag"] in rank.EXCLUDE_TAGS)
         if (x["tag"] or "").startswith("D-LPS") or x["tag"] == "D sớm":
             assert any(w["key"] == "light" for w in x["warnings"])
     assert rank.rank(conn, ds[-1], 10 ** 6) == []
@@ -166,18 +170,21 @@ def test_rank_and_daily_changes(tmp_path, monkeypatch):
     assert rank.compare_date(conn, ds[1], "week") == ds[0]                         # không đủ 5 phiên: phiên cũ nhất
     assert rank.compare_date(conn, ds[0], "prev") is None
     pos = rank.positions(conn, ds[-1], 0, False)
-    assert pos == rank.positions_of(rank.rank(conn, ds[-1], 0), False)
-    assert sorted(pos.values()) == list(range(1, len(SYMS) + 1))
-
     cur = rank.rank(conn, ds[-1], 0)
-    every = [x["sym"] for x in cur]
-    prev = {every[-1]: 1, "ZZZ": 2, every[0]: 3}                                   # ZZZ: không còn đủ thanh khoản
-    dropped = rank.changes(cur, prev, 3, eligible_only=False)
-    assert cur[0]["prev_pos"] == 3 and not cur[0]["new"]
-    assert cur[1]["new"]
-    by = {x["sym"]: x for x in dropped}
-    assert by[every[-1]]["pos"] == len(SYMS) and by["ZZZ"]["reason"] == "không còn đủ thanh khoản"
-    assert every[0] not in by
+    assert pos == rank.positions_of(cur, False)
+    n_pool = sum(not x["excluded"] for x in cur)
+    assert sorted(pos.values()) == list(range(1, n_pool + 1))
+
+    every = [x["sym"] for x in rank.order(cur)]
+    if len(every) >= 3:
+        prev = {every[-1]: 1, "ZZZ": 2, every[0]: 3}                               # ZZZ: không còn đủ thanh khoản
+        dropped = rank.changes(cur, prev, 2)
+        assert cur[0]["prev_pos"] == 3 and cur[0]["new"]
+        by = {x["sym"]: x for x in dropped}
+        assert by[every[-1]]["pos"] == len(every) and by["ZZZ"]["reason"] == "không còn đủ thanh khoản"
+    out = [x["sym"] for x in cur if x["excluded"]]
+    if out:                                                                        # mã ở nhóm loại rời top: ghi lý do
+        assert rank.changes(cur, {out[0]: 1}, 3)[0]["reason"].startswith("nay ở nhóm loại")
     cnt, n = rank.in_top(conn, ds[-1], 2)
     assert n == len(ds) and all(0 <= v <= n for v in cnt.values())
     assert rank.in_top(conn, ds[-1], 2, last=3)[1] == 3
@@ -202,19 +209,32 @@ def test_api_top(tmp_path, monkeypatch):
     _scan(conn, monkeypatch, ds)
     monkeypatch.setattr(api, "conn", conn)
     monkeypatch.setattr(api, "_TOP_CACHE", {})
-    monkeypatch.setattr(api, "_PROP_TRIED", {})
     c = TestClient(api.app)
     j = c.get(f"/api/top?date={ds[-1]}&min_liq=0&all=true&vs=prev").json()
     assert j["date"] == ds[-1] and j["compare"] == dict(vs="prev", date=ds[-2])
-    assert len(j["rows"]) == len(SYMS) == j["n_liquid"]
-    assert all({"prev_pos", "new", "in_top", "in_top_of", "pillars", "total"} <= set(x) for x in j["rows"])
-    assert set(j["weights"]) == {"wyckoff", "tech", "flow"}
+    assert j["n_liquid"] == len(SYMS)
+    assert all({"prev_pos", "new", "in_top", "in_top_of", "pillars", "factors", "total"} <= set(x) for x in j["rows"])
+    assert len(j["rows"]) == j["n_pool"] and all(not x["excluded"] for x in j["rows"])
+    assert [f["key"] for f in j["factors"]] == ["dry", "vol", "ready"]
     assert c.get("/api/top?date=2026-11-14").status_code == 404
-    j2 = c.get(f"/api/top?min_liq=0&n=1").json()
+    j2 = c.get(f"/api/top?min_liq=0&n=1&all=false").json()
     assert len(j2["rows"]) <= 1 and all(x["eligible"] for x in j2["rows"])
 
 
 # ------------------------------------------------------------------ kiểm chứng
+def test_factors_and_pct_scores():
+    bars = [dict(c=10 + (i % 2) * 0.1, v=100 if i < 70 else 50) for i in range(80)]
+    f = rank.factors(dict(plan=dict(ready=dict(score=72))), bars)
+    assert f["ready"] == 72 and abs(f["dry"] - 50 / (50 * 10 + 100 * 50) * 60) < 1e-3 and f["vol"] > 0
+    assert rank.factors({}, bars[:30]) == dict(dry=None, vol=f["vol"], ready=None)       # dưới 60 nến: chưa tính cung cạn
+    raws = [dict(dry=0.5, vol=1.0, ready=80), dict(dry=1.5, vol=3.0, ready=40), dict(dry=None, vol=2.0, ready=None)]
+    sc = rank.pct_scores(raws)
+    assert sc[0]["dry"] == 75 and sc[1]["dry"] == 25 and sc[2]["dry"] == 50             # thấp là tốt; thiếu = 50
+    assert sc[0]["vol"] > sc[2]["vol"] > sc[1]["vol"] and sc[0]["ready"] == 75
+    assert sc[0]["total"] > sc[2]["total"] > sc[1]["total"]
+    assert rank.pct_scores([dict(dry=1, vol=1, ready=1)] * 2)[0]["total"] == 50          # bằng nhau: hạng trung bình
+
+
 def test_spearman_and_fwd():
     assert rank_bt.spearman([1, 2, 3, 4], [10, 20, 30, 40]) == 1
     assert abs(rank_bt.spearman([1, 2, 3, 4], [4, 3, 2, 1]) + 1) < 1e-12
@@ -231,8 +251,11 @@ def test_rank_bt_small_run_and_daily(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(rank_bt, "MIN_LIQ_BIL", 0)
     monkeypatch.setattr(rank_bt, "LOG_DIR", tmp_path)                            # không ghi đè logs thật
     picks, vni = rank_bt.collect(conn, SYMS, "2025-06-01", "2026-09-30", 20)
-    assert picks and all({"date", "sym", "total", "W", "T", "F", "fwd20", "fwd60", "eligible"} <= set(x) for x in picks)
+    assert picks and all({"date", "sym", "tag", "excluded", "dry", "vol", "ready", "fwd20", "fwd60", "eligible"} <= set(x)
+                         for x in picks)
     ms = rank_bt.months(picks, vni, 2)
+    scored = [x for x in picks if "total" in x]
+    assert scored and all(not x["excluded"] and 0 <= x["total"] <= 100 for x in scored)
     res = rank_bt.summarize(ms, 2, 20)
     assert "Tất cả" in res and set(rank_bt.COLS) <= set(res["Tất cả"])
     monkeypatch.setattr("sys.argv", ["rank_bt", "--symbols", ",".join(SYMS), "--from", "2026-01-01", "--to", "2026-06-30"])

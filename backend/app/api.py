@@ -11,7 +11,7 @@ from .core.wyckoff import analyse, trim, ANALYSIS_DAYS
 from .core.market import traffic_light
 from .core.positions import simulate
 from .core.foreign import get_foreign, MAX_SESSIONS as FX_MAX
-from .core.proprietary import get_prop, prop_net, sync_prop
+from .core.proprietary import get_prop
 from .core import rank as rank_mod
 from .core import risk as risk_mod
 from .core import journal as journal_mod
@@ -202,8 +202,7 @@ def scan_latest(group: str | None = None, date: str | None = None):
 
 
 _TOP_CACHE: dict = {}             # (phiên, GT tối thiểu) -> (thời điểm, các dòng rank()); hết hạn sau TOP_TTL giây
-_PROP_TRIED: dict = {}            # (mã, phiên) -> lần cuối thử tải tự doanh từ trang Top (tối đa 1 lần/giờ)
-TOP_TTL, PROP_RETRY, PROP_FILL = 600, 3600, 20
+TOP_TTL = 600
 
 
 def _top_rows(d: str, min_liq: float, light: str | None, fresh: bool = False) -> list[dict]:
@@ -213,24 +212,6 @@ def _top_rows(d: str, min_liq: float, light: str | None, fresh: bool = False) ->
         return hit[1]
     rows = rank_mod.rank(conn, d, min_liq, light)
     _TOP_CACHE[(d, min_liq)] = (time.time(), rows)
-    return rows
-
-
-def _fill_prop(d: str, rows: list[dict], min_liq: float, light: str | None) -> list[dict]:
-    """Phiên mới nhất: 20 mã có điểm mua đứng đầu chưa có tự doanh (prop_net None) thì thử tải; có mã mới thì chấm lại."""
-    now = time.time()
-    need = [x["sym"] for x in rows if x["eligible"]][:PROP_FILL]
-    need = [s for s in need if prop_net(conn, s, d) is None and now - _PROP_TRIED.get((s, d), 0) >= PROP_RETRY]
-    if not need:
-        return rows
-    for s in need:
-        _PROP_TRIED[(s, d)] = now
-    try:
-        sync_prop(conn, need, d)
-    except Exception:
-        return rows
-    if any(prop_net(conn, s, d) is not None for s in need):
-        return _top_rows(d, min_liq, light, fresh=True)
     return rows
 
 
@@ -245,17 +226,15 @@ def _validation():
 
 @app.get("/api/top")
 def top(date: str | None = None, min_liq: float = Query(MIN_LIQ_BIL, ge=0), n: int = Query(10, ge=1, le=50),
-        all: bool = False, vs: str = Query("prev", pattern="^(prev|week)$")):
-    """Top n tiềm năng phiên `date` (mặc định mới nhất): điểm = trung bình 3 mục Wyckoff · Kỹ thuật & Cơ bản · Dòng tiền.
-    all=false: chỉ mã có điểm mua. vs: so thứ hạng với phiên trước (prev) hoặc 1 tuần trước (week)."""
+        all: bool = True, vs: str = Query("prev", pattern="^(prev|week)$")):
+    """Top n tiềm năng phiên `date` (mặc định mới nhất): điểm = TB phần trăm cung cạn · biến động thấp · điểm sẵn sàng
+    trong nhóm được xếp (bỏ B/C, SOS hỏng, dưới hỗ trợ), xem core/rank.py. all=false: chỉ mã có điểm mua.
+    vs: so thứ hạng với phiên trước (prev) hoặc 1 tuần trước (week)."""
     d = _session(date)
     if not d:
         raise HTTPException(404, "Chưa có kết quả quét")
     mk = market(d)
-    rows = _top_rows(d, min_liq, mk["light"])
-    if d == conn.execute("SELECT max(date) FROM scan_results").fetchone()[0]:
-        rows = _fill_prop(d, rows, min_liq, mk["light"])
-    rows = [dict(x) for x in rows]                # changes() gắn thêm trường: không sửa bản trong cache
+    rows = [dict(x) for x in _top_rows(d, min_liq, mk["light"])]                # changes() gắn thêm trường: không sửa bản trong cache
     only = not all
     cmp = rank_mod.compare_date(conn, d, vs)
     prev_pos = {}
@@ -266,8 +245,10 @@ def top(date: str | None = None, min_liq: float = Query(MIN_LIQ_BIL, ge=0), n: i
     dropped = rank_mod.changes(rows, prev_pos, n, only)
     cnt, days = rank_mod.in_top(conn, d, n)
     out = [dict(x, in_top=cnt.get(x["sym"], 0), in_top_of=days) for x in rank_mod.order(rows, only)[:n]]
-    return dict(date=d, light=mk["light"], light_text=mk.get("text"), weights=rank_mod.WEIGHTS, min_liq=min_liq,
-                n_liquid=len(rows), n_eligible=sum(x["eligible"] for x in rows), compare=dict(vs=vs, date=cmp),
+    return dict(date=d, light=mk["light"], light_text=mk.get("text"), min_liq=min_liq,
+                factors=[dict(key=k, label=lb) for k, lb, _ in rank_mod.FACTORS], exclude=list(rank_mod.EXCLUDE_TAGS),
+                n_liquid=len(rows), n_pool=sum(not x["excluded"] for x in rows),
+                n_eligible=sum(x["eligible"] and not x["excluded"] for x in rows), compare=dict(vs=vs, date=cmp),
                 rows=out, dropped=dropped, validation=_validation())
 
 

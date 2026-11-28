@@ -148,7 +148,10 @@ export type TopRow = {
   sym: string; name: string | null; icb_name: string | null; floor: string | null; c: number; chg: number; tag: string; stage: string;
   plan_kind: string | null; entry_lo: number | null; entry_hi: number | null; stop: number | null; rr: number | null; in_zone: boolean | null;
   target: { k: string; price: number; upside: number } | null; liq: number; eligible: boolean; total: number; pct_rank: number | null;
-  pillars: { wyckoff: TopPillar; tech: TopPillar; flow: TopPillar }; highlights: TopItem[]; warnings: TopItem[];
+  /** 3 thành phần tính điểm (pts = phần trăm 0–100 trong nhóm được xếp); excluded = nhóm bị loại (không có điểm) */
+  factors: TopItem[]; excluded: boolean; parts: { dry: number; vol: number; ready: number } | null;
+  /** 3 mục cũ: chỉ để tham khảo, không tính điểm; ref_total = điểm theo công thức cũ */
+  pillars: { wyckoff: TopPillar; tech: TopPillar; flow: TopPillar }; ref_total: number; highlights: TopItem[]; warnings: TopItem[];
   prev_pos: number | null; new: boolean; in_top: number; in_top_of: number;
 };
 /** Kiểm chứng lịch sử theo giai đoạn (python -m app.rank_bt); lợi nhuận là % / hold phiên, chưa trừ phí. */
@@ -156,8 +159,9 @@ export type RankBt = { period: string; months: number; top_n: number; hold: numb
   liq_ret: number | null; vni_ret: number | null; beat_pct: number; top_win: number; ic: number | null; ic_w: number | null;
   ic_t: number | null; ic_f: number | null; updated: string };
 export type TopResp = {
-  date: string; light: "green" | "yellow" | "red" | "?"; light_text: string; weights: Record<string, number>; min_liq: number;
-  n_liquid: number; n_eligible: number; compare: { vs: "prev" | "week"; date: string | null }; rows: TopRow[];
+  date: string; light: "green" | "yellow" | "red" | "?"; light_text: string; min_liq: number;
+  factors: { key: string; label: string }[]; exclude: string[];
+  n_liquid: number; n_pool: number; n_eligible: number; compare: { vs: "prev" | "week"; date: string | null }; rows: TopRow[];
   dropped: { sym: string; prev_pos: number; pos?: number; total?: number; reason?: string }[];
   validation: { rows: RankBt[]; updated: string } | null;
 };
