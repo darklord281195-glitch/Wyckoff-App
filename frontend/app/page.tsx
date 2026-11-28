@@ -245,9 +245,9 @@ export default function Home() {
           <table className="right">
             <thead>
               <tr>
-                {th("sym", "Mã")}{th("sector", "Ngành")}{th("stage", "Pha")}{plain("Giá", true)}{th("chg", "%", true)}{th("ready", "Điểm", true)}
+                {th("sym", "Mã")}{th("banker", "Banker", true)}{th("sector", "Ngành")}{th("stage", "Pha")}{plain("Giá", true)}{th("chg", "%", true)}{th("ready", "Điểm", true)}
                 {plain("Vùng vào", true)}{plain("Cắt lỗ", true)}{th("rr", "Lời/lỗ", true)}
-                {th("dist", "So trần", true)}{th("rs20", "RS20", true)}{th("rs60", "RS60", true)}{th("liq", "GT (tỷ)", true)}{th("fx10", "NN 10p (tỷ)", true)}{th("banker", "Banker", true)}{plain("Ghi chú")}
+                {th("dist", "So trần", true)}{th("rs20", "RS20", true)}{th("rs60", "RS60", true)}{th("liq", "GT (tỷ)", true)}{th("fx10", "NN 10p (tỷ)", true)}{plain("Ghi chú")}
               </tr>
             </thead>
             <tbody>
@@ -255,6 +255,13 @@ export default function Home() {
                 <tr key={r.sym}>
                   <td title={r.name ?? ""}><Link href={`/symbol/${r.sym}${at}`}><b>{r.sym}</b></Link>{" "}
                     <span className="muted" style={{ fontSize: 11.5 }}>{r.floor ?? ""}</span></td>
+                  <td className="n" title="MCDX Plus: % cột của banker (đỏ); mũi tên = thay đổi 5 phiên"
+                    style={{ color: r.banker == null ? "var(--muted)" : r.banker >= 50 ? "#dc2626" : undefined, fontWeight: (r.banker ?? 0) >= 50 ? 700 : 400 }}>
+                    {r.banker == null ? "–" : num(r.banker, 0) + "%"}
+                    {r.banker_chg5 ? <span className={r.banker_chg5 > 0 ? "up" : "down"} style={{ fontSize: 11 }}> {r.banker_chg5 > 0 ? "▲" : "▼"}</span> : null}
+                    {r.banker_label && <div style={{ fontFamily: "var(--font)", fontSize: 11, fontWeight: 500,
+                      color: r.banker_tone === "good" ? "var(--up)" : r.banker_tone === "bad" ? "var(--down)" : r.banker_tone === "warn" ? "var(--warn)" : "var(--muted)" }}>
+                      {r.banker_label}</div>}</td>
                   <td style={{ maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", fontSize: 13 }} title={secOf(r)}>
                     {secOf(r)
                       ? <button onClick={() => setGroup(r.groups.find((g) => g.startsWith("icb:"))!)} title={`${secOf(r)} · bấm để lọc ngành này`}
@@ -283,13 +290,6 @@ export default function Home() {
                   <td className="n">{num(r.liq)}</td>
                   <td className={`n ${r.fx10 == null ? "muted" : r.fx10 >= 0 ? "up" : "down"}`}>
                     {r.fx10 == null ? "–" : (r.fx10 > 0 ? "+" : "") + num(r.fx10, 1)}</td>
-                  <td className="n" title="MCDX Plus: % cột của banker (đỏ); mũi tên = thay đổi 5 phiên"
-                    style={{ color: r.banker == null ? "var(--muted)" : r.banker >= 50 ? "#dc2626" : undefined, fontWeight: (r.banker ?? 0) >= 50 ? 700 : 400 }}>
-                    {r.banker == null ? "–" : num(r.banker, 0) + "%"}
-                    {r.banker_chg5 ? <span className={r.banker_chg5 > 0 ? "up" : "down"} style={{ fontSize: 11 }}> {r.banker_chg5 > 0 ? "▲" : "▼"}</span> : null}
-                    {r.banker_label && <div style={{ fontFamily: "var(--font)", fontSize: 11, fontWeight: 500,
-                      color: r.banker_tone === "good" ? "var(--up)" : r.banker_tone === "bad" ? "var(--down)" : r.banker_tone === "warn" ? "var(--warn)" : "var(--muted)" }}>
-                      {r.banker_label}</div>}</td>
                   <td className="muted" style={{ whiteSpace: "normal", minWidth: 220, fontSize: 13 }}>{r.extra}</td>
                 </tr>
               ))}
