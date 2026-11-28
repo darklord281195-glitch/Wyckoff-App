@@ -156,6 +156,7 @@ function chGeom(c: Channel, idx: (q: ChPt) => number | null) {
   return { i0: Math.min(ia, ib), k, at, lo: (i: number) => Math.min(at(i), at(i) + c.dp), hi: (i: number) => Math.max(at(i), at(i) + c.dp) };
 }
 
+const AUTO_KEY = "wyckoff.automarks";                     // localStorage: bật/tắt mốc Wyckoff tự dò
 const IND_KEY = "wyckoff.indicators";                      // localStorage: bật/tắt RSI/MACD
 const MCDX_KEY = "wyckoff.mcdx";                           // localStorage: bật/tắt MCDX
 
@@ -255,6 +256,12 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
   const toggleSc = () => {
     setShowSc(!showSc);
     try { localStorage.setItem(SC_KEY, showSc ? "0" : "1"); } catch { /* không có storage */ }
+  };
+  const [showAuto, setShowAuto] = useState(true);             // mốc Wyckoff tự dò + vùng SC–AR + đường kế hoạch
+  useEffect(() => { try { if (localStorage.getItem(AUTO_KEY) === "0") setShowAuto(false); } catch { /* không có storage */ } }, []);
+  const toggleAuto = () => {
+    setShowAuto(!showAuto);
+    try { localStorage.setItem(AUTO_KEY, showAuto ? "0" : "1"); } catch { /* không có storage */ }
   };
   const box2 = useRef<HTMLDivElement>(null);
   const [showInd, setShowInd] = useState(false);              // RSI + MACD bên dưới: mặc định tắt
@@ -504,7 +511,7 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
       setVtip({ x: p.point!.x, y: top, d: r.d, v: r.v, vx: a ? r.v / a : null, chg: i > 0 ? (r.c / rows[i - 1].c - 1) * 100 : null });
     });
 
-    if (analysis?.range) {
+    if (showAuto && analysis?.range) {
       const rg = analysis.range;
       // vùng tích lũy: tô nền SC–AR từ ngày SC tới phiên phân tích, đường trần/đáy đứt nét đậm
       const days = rows.filter((r) => r.d >= k(rg.start) && r.d.slice(0, 10) <= analysis.d).map((r) => T(r.d));
@@ -544,8 +551,8 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
         time: T(k(e.d)), position: e.pos === "high" ? "aboveBar" : "belowBar",
         color: down, shape: e.pos === "high" ? "arrowDown" : "arrowUp", text: e.k,
       }));
-    candles.setMarkers(markers.sort((a, b) => (a.time < b.time ? -1 : 1)));
-    autoMarks.current = markers;
+    autoMarks.current = showAuto ? markers.sort((a, b) => (a.time < b.time ? -1 : 1)) : [];
+    candles.setMarkers(autoMarks.current);
 
     // kịch bản: đổi số phiên -> ngày (ngày giao dịch thật nếu có nến sau phiên phân tích, hết thì sinh thứ 2–6)
     const iA = analysis ? rows.findIndex((r) => r.d === analysis.d) : -1;
@@ -670,7 +677,7 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
     }
     setChartVer((v) => v + 1);
     return () => { sub?.remove(); sub2?.remove(); chart.remove(); chartRef.current = null; candleRef.current = null; setTip(null); setVtip(null); };
-  }, [view, tf, analysis, unit, sel?.from, sel?.to, sc, showSc, showInd, showIchi, showMcdx]);
+  }, [view, tf, analysis, unit, sel?.from, sel?.to, sc, showSc, showInd, showIchi, showMcdx, showAuto]);
 
   // chế độ chọn khoảng: tắt kéo/zoom của biểu đồ để chuột dùng cho việc chọn
   useEffect(() => {
@@ -708,6 +715,9 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
         {onRange && <button className={`btn${picking ? " primary" : ""}`} onClick={() => { setPicking(!picking); setDrag(null); setDrawing(null); }}
           title="Kéo chuột qua một đoạn để phân tích Wyckoff trong đoạn đó">
           {picking ? "Kéo chuột chọn khoảng… (bấm để hủy)" : "↔ Chọn khoảng phân tích"}</button>}
+        {analysis && <button className={`btn${showAuto ? " primary" : ""}`} onClick={toggleAuto}
+          title="Mốc Wyckoff app tự dò (SC, AR, ST, Spring, SOS…), ô vùng SC–AR và các đường Vào / Cắt lỗ / T1–T4. Tắt để vẽ kênh cho thoáng.">
+          {showAuto ? "✓ Mốc Wyckoff" : "Mốc Wyckoff"}</button>}
         {sc && <button className={`btn${showSc ? " primary" : ""}`} onClick={toggleSc}
           title="Đường đứt nét: xanh = kịch bản thành công tới các mục tiêu, đỏ = kịch bản hỏng về cắt lỗ">
           {showSc ? "✓ Kịch bản" : "Kịch bản"}</button>}
