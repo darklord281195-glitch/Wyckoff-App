@@ -175,7 +175,8 @@ def scan_latest(group: str | None = None, date: str | None = None):
                          liq=r["liq"], rs5=r.get("rs5"), rs20=r.get("rs20"), rs60=r.get("rs60"),
                          dist=r.get("dist"), extra=r.get("extra"), weak_drop=r.get("weak_drop"),
                          levels=r.get("levels"), pos52=r.get("pos52"), fx10=r.get("fx10"),
-                         banker=(r.get("mcdx") or {}).get("banker"), banker_chg5=(r.get("mcdx") or {}).get("banker_chg5")))
+                         banker=(r.get("mcdx") or {}).get("banker"), banker_chg5=(r.get("mcdx") or {}).get("banker_chg5"),
+                         banker_label=(r.get("mcdx") or {}).get("label"), banker_tone=(r.get("mcdx") or {}).get("tone")))
     return dict(date=d, rows=rows, groups=GROUP_NAMES, sectors=sectors(conn))
 
 
@@ -391,7 +392,8 @@ def journal():
             return {}, _light_at(d), []
         plan = (a or {}).get("plan") or {}
         items = intraday_mod.checklist(plan, R, ((a or {}).get("range") or {}).get("res"), full_day=True) if len(R) > 21 else []
-        fails = [x["why"] for x in items if x["ok"] is False and x["key"] not in ("plan", "zone", "rr")]   # 3 mục này đã có riêng
+        fails = [x["why"] for x in items if x["ok"] is False and not x.get("advisory")
+                 and x["key"] not in ("plan", "zone", "rr")]   # 3 mục này đã có riêng; MCDX chỉ tham khảo
         return plan, _light_at(d), fails
 
     bt = conn.execute("SELECT avg_r FROM backtest_stats WHERE plan='Tất cả'").fetchone()

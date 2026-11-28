@@ -83,6 +83,28 @@ export function mcdx(cl: number[]) {
   return { banker, hot, ma };
 }
 
+/** Nhãn trạng thái MCDX, cùng luật với backend core/mcdx.py (state_of / STATES) */
+export const MCDX_STATES: Record<string, [string, "good" | "warn" | "bad" | "info", string]> = {
+  none: ["Chưa ai kéo", "bad", "Không có đỏ, vàng thấp: xu hướng dài hạn chưa tăng, dòng tiền đầu cơ cũng yếu. Đứng ngoài."],
+  spec: ["Chỉ có đầu cơ", "warn", "Có vàng (lướt sóng) nhưng chưa có đỏ: xu hướng dài hạn chưa tăng. Không mua theo, chờ cấu trúc."],
+  exit: ["Tay to rút ở vùng cao", "bad", "Đỏ co lại trong khi giá ở gần đỉnh 20 phiên: dấu hiệu phân phối. Siết cắt lỗ, không mua mới."],
+  enter: ["Tay to bắt đầu vào", "good", "Đỏ vừa xuất hiện / dâng dần: thường gặp lúc chuyển Pha C sang D. Theo dõi sát, chờ điểm mua của kế hoạch."],
+  lead: ["Tay to dẫn dắt", "good", "Đỏ trên nửa cột và còn tăng: đang trong nhịp tăng (Pha D/E). Chỉ mua ở nhịp lùi (LPS/Backup)."],
+  fade: ["Tay to giảm", "warn", "Đỏ đang co lại so với 5 phiên trước: đà tăng dài hạn yếu đi."],
+  hold: ["Tay to có mặt", "info", "Có đỏ, không tăng không giảm rõ."],
+};
+export function mcdxState(b: number, b5: number | null, ma: number | null, h: number, cl: number[]) {
+  const last20 = cl.slice(-20), nearTop = cl.length >= 20 && cl[cl.length - 1] >= 0.97 * Math.max(...last20);
+  const falling = b5 != null && b5 - b >= 2 && (ma == null || b < ma);
+  if (b <= 0) return h >= 4 ? "spec" : "none";
+  if (falling && nearTop) return "exit";
+  if (b5 != null && (b5 <= 0 || (b - b5 >= 2 && b < 10))) return "enter";
+  if (b >= 10 && (ma == null || b >= ma)) return "lead";
+  if (falling) return "fade";
+  return "hold";
+}
+export const TONE_COLOR = { good: "var(--up)", warn: "var(--warn)", bad: "var(--down)", info: "var(--muted)" } as const;
+
 type Node = { n: number; price: number; label?: string };   // n = số phiên tính từ phiên phân tích
 const SC_KEY = "wyckoff.scenario";                          // localStorage: bật/tắt kịch bản
 const ICHI_KEY = "wyckoff.ichimoku";                        // localStorage: bật/tắt mây Ichimoku
@@ -609,9 +631,13 @@ function McdxPanel({ box, closes }: { box: React.RefObject<HTMLDivElement | null
   const m = useMemo(() => mcdx(closes), [closes]);
   const i = closes.length - 1, b = m.banker[i], h = m.hot[i], ma = m.ma[i];
   const pctOf = (x: number) => num(x * 5, 0) + "%";
+  const st = b != null && h != null ? MCDX_STATES[mcdxState(b, i >= 5 ? m.banker[i - 5] : null, ma, h, closes)] : null;
   return (
     <>
       <div ref={box} style={{ width: "100%", height: 150, marginTop: 4 }} />
+      {st && <p style={{ margin: "6px 0 0" }}>
+        <span className="pill" style={{ background: "transparent", border: `1px solid ${TONE_COLOR[st[1]]}`, color: TONE_COLOR[st[1]] }}>
+          {st[0]}</span> <span style={{ fontSize: 13.5 }}>{st[2]}</span></p>}
       <p className="muted" style={{ margin: "4px 0 0", fontSize: 12.5 }}>
         <b>MCDX Plus</b>{b != null && h != null && <> · phiên cuối:{" "}
           <span style={{ color: "#ef4444", fontWeight: 600 }}>banker {pctOf(b)}</span> ·{" "}

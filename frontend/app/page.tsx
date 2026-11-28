@@ -220,7 +220,10 @@ export default function Home() {
                   <td className="n" title="MCDX Plus: % cột của banker (đỏ); mũi tên = thay đổi 5 phiên"
                     style={{ color: r.banker == null ? "var(--muted)" : r.banker >= 50 ? "#dc2626" : undefined, fontWeight: (r.banker ?? 0) >= 50 ? 700 : 400 }}>
                     {r.banker == null ? "–" : num(r.banker, 0) + "%"}
-                    {r.banker_chg5 ? <span className={r.banker_chg5 > 0 ? "up" : "down"} style={{ fontSize: 11 }}> {r.banker_chg5 > 0 ? "▲" : "▼"}</span> : null}</td>
+                    {r.banker_chg5 ? <span className={r.banker_chg5 > 0 ? "up" : "down"} style={{ fontSize: 11 }}> {r.banker_chg5 > 0 ? "▲" : "▼"}</span> : null}
+                    {r.banker_label && <div style={{ fontFamily: "var(--font)", fontSize: 11, fontWeight: 500,
+                      color: r.banker_tone === "good" ? "var(--up)" : r.banker_tone === "bad" ? "var(--down)" : r.banker_tone === "warn" ? "var(--warn)" : "var(--muted)" }}>
+                      {r.banker_label}</div>}</td>
                   <td className="muted" style={{ whiteSpace: "normal", minWidth: 220, fontSize: 13 }}>{r.extra}</td>
                 </tr>
               ))}

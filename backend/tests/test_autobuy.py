@@ -87,7 +87,7 @@ def test_paper_evaluate_stop_and_target():
 def test_checklist_is_the_rule_source_of_good_setup():
     R = bars()
     items = it.checklist(PLAN, R)
-    assert [x["key"] for x in items] == ["plan", "zone", "rr", "upper", "turn", "vol", "selloff"]
+    assert [x["key"] for x in items][:7] == ["plan", "zone", "rr", "upper", "turn", "vol", "selloff"]
     assert all(x["ok"] is not False for x in items) and it.good_setup(PLAN, R)[0]
     vol = lambda its: next(x for x in its if x["key"] == "vol")["ok"]
     assert not vol(it.checklist(PLAN, bars(today=dict(v=0.9)))) and vol(it.checklist(PLAN, bars(today=dict(v=0.9)), full_day=True))

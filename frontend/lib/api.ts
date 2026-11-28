@@ -36,6 +36,7 @@ export type Row = {
   test?: "Spring" | "ST" | null;   // Spring/ST trong 15 phiên gần nhất (kế hoạch Spring/Test)
   fx10: number | null;   // khối ngoại mua ròng 10 phiên, tỷ đồng
   banker?: number | null; banker_chg5?: number | null;   // MCDX Plus: % cột của "tay to" (đỏ) và thay đổi 5 phiên
+  banker_label?: string | null; banker_tone?: "good" | "warn" | "bad" | "info" | null;   // nhãn trạng thái MCDX
 };
 export type Market = { date: string; light: "green" | "yellow" | "red" | "?"; text: string; c: number; chg: number; tag: string };
 export type Signal = { date: string; sym: string; kind: string; is_new: number; text: string };
@@ -84,7 +85,8 @@ export type PfMetric = { total: number; cagr: number; mdd: number; sharpe: numbe
 export type HealthCheck = { key: string; label: string; level: "ok" | "warn" | "error"; detail: string };
 export type Health = { at: string; expected: string; level: "ok" | "warn" | "error"; checks: HealthCheck[] };
 /** Một điều kiện của "Kịch bản mua đẹp": ok = đạt / chưa đạt / null = không áp dụng cho loại kế hoạch này. */
-export type CheckItem = { key: string; label: string; ok: boolean | null; detail: string; why: string };
+export type CheckItem = { key: string; label: string; ok: boolean | null; detail: string; why: string;
+  advisory?: boolean };   // advisory: chỉ tham khảo, không ảnh hưởng kết luận
 /** Bảng kiểm tra trước khi mua (/api/symbols/{mã}/check). verdict: buy / half (đèn vàng) / red (đèn đỏ) / wait / no. */
 export type BuyCheck = { sym: string; at: string; d: string; live: boolean; price: number; chg: number | null; light: string;
   kind: string | null; entry_lo: number | null; entry_hi: number | null; stop: number | null; rr: number | null; t1: number | null;

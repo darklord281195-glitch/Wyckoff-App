@@ -60,9 +60,12 @@ export default function PreBuyCheck({ sym }: { sym: string }) {
         <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 6 }}>
           {d.items.map((x) => (
             <li key={x.key} style={{ display: "grid", gridTemplateColumns: "18px 1fr", gap: 8 }}>
-              <b className={x.ok === true ? "up" : x.ok === false ? "down" : "muted"} aria-label={x.ok === true ? "đạt" : x.ok === false ? "chưa đạt" : "không áp dụng"}>
-                {x.ok === true ? "✓" : x.ok === false ? "✗" : "–"}</b>
+              <b className={x.ok === true ? "up" : x.ok === false && !x.advisory ? "down" : "muted"}
+                style={x.ok === false && x.advisory ? { color: "var(--warn)" } : undefined}
+                aria-label={x.ok === true ? "đạt" : x.ok === false ? (x.advisory ? "lưu ý" : "chưa đạt") : "không áp dụng"}>
+                {x.ok === true ? "✓" : x.ok === false ? (x.advisory ? "⚠" : "✗") : "–"}</b>
               <span><span style={{ fontWeight: x.ok === false ? 600 : 400 }}>{x.label}</span>
+                {x.advisory && <span className="muted" style={{ fontSize: 12 }}> (tham khảo)</span>}
                 <span className="muted" style={{ fontSize: 12.5 }}> · {x.detail}</span></span>
             </li>
           ))}

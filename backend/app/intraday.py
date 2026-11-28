@@ -22,6 +22,7 @@ from .core.wyckoff import analyse, trim
 from .core.market import traffic_light
 from .core.plan import BUY_KINDS
 from .core.costs import slip_for
+from .core import mcdx
 from .core import paper
 from .universe import INDEX, listing
 from . import notify, health
@@ -54,8 +55,8 @@ def checklist(plan: dict | None, R: list[dict], res: float | None = None, full_d
     why = lý do không đạt (good_setup báo mục False đầu tiên). Một nguồn luật cho tự mua thử nghiệm và bảng kiểm tra."""
     p, items = plan or {}, []
 
-    def add(key, label, ok, detail, why=""):
-        items.append(dict(key=key, label=label, ok=ok, detail=detail, why=why))
+    def add(key, label, ok, detail, why="", advisory=False):
+        items.append(dict(key=key, label=label, ok=ok, detail=detail, why=why, advisory=advisory))
 
     has = p.get("kind") in BUY_KINDS and bool(p.get("entry_lo"))
     add("plan", "Kế hoạch có điểm mua", has, p.get("kind") or "–", f"kế hoạch {p.get('kind') or '–'} không có điểm mua")
@@ -101,13 +102,20 @@ def checklist(plan: dict | None, R: list[dict], res: float | None = None, full_d
             f"vừa bán mạnh {sd}, chưa đủ 2 phiên lùi KL thấp")
     else:
         add("selloff", "Không vừa có phiên bán mạnh", None, "3 phiên gần nhất không có phiên bán mạnh")
+    # MCDX chỉ tham khảo (advisory: không chặn kết luận, không tính vào good_setup): backtest cho thấy mua khi banker 0%
+    # kém nhất ở cả 2019–23 và 2024–26, nhưng lọc thêm trong các lệnh luật đã giữ thì chưa ổn định
+    m = mcdx.last([x["c"] for x in R])
+    if m:
+        add("mcdx", "MCDX: có đỏ (xu hướng dài hạn tăng)", m["banker"] > 0,
+            f"{m['label']} · banker {num(m['banker'], 0)}% · hot money {num(m['hot'], 0)}%",
+            "banker 0%: xu hướng dài hạn chưa tăng (backtest: mua lúc này kém nhất)", advisory=True)
     return items
 
 
 def good_setup(plan: dict | None, R: list[dict], res: float | None = None) -> tuple[bool, str]:
     """Mã có đạt "Kịch bản mua đẹp" ngay lúc này không (luật của skill wyckoff). R[-1] = nến hôm nay đang chạy.
     Trả (đạt?, lý do không đạt / mô tả ngắn khi đạt)."""
-    bad = next((x for x in checklist(plan, R, res) if x["ok"] is False), None)
+    bad = next((x for x in checklist(plan, R, res) if x["ok"] is False and not x.get("advisory")), None)
     if bad:
         return False, bad["why"]
     v20 = sum(x["v"] for x in R[-21:-1]) / 20
@@ -120,7 +128,7 @@ def verdict(items: list[dict], light: str | None, price: float, plan: dict | Non
     wait = chờ (điều kiện còn lại chưa đạt); red = đạt nhưng đèn đỏ (luật rủi ro: không mở lệnh mới);
     half = nên vào, ½ rủi ro (đèn vàng); buy = nên vào."""
     p = plan or {}
-    bad = [x for x in items if x["ok"] is False]
+    bad = [x for x in items if x["ok"] is False and not x.get("advisory")]
     hard = [x for x in bad if x["key"] in ("plan", "rr") or (x["key"] == "zone" and price > (p.get("entry_hi") or 0))]
     if hard:
         return "no", "Không vào: " + hard[0]["why"]
