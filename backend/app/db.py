@@ -80,11 +80,14 @@ CREATE TABLE IF NOT EXISTS sales (                -- từng lần bán thực t�
 """
 
 
-def connect(path=None) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(path or DB_PATH), check_same_thread=False)
+def connect(path=None, init: bool = True) -> sqlite3.Connection:
+    """init=False: bỏ qua tạo bảng / nâng cấp (đã làm một lần lúc khởi động), dùng cho kết nối riêng của từng luồng API.
+    timeout 30 giây: chờ khóa ghi (vd lúc đang quét) thay vì báo "database is locked" ngay."""
+    conn = sqlite3.connect(str(path or DB_PATH), check_same_thread=False, timeout=30)
     conn.row_factory = sqlite3.Row
-    conn.executescript(SCHEMA)
-    _migrate(conn)
+    if init:
+        conn.executescript(SCHEMA)
+        _migrate(conn)
     return conn
 
 
@@ -110,7 +113,8 @@ def _migrate(conn):
         conn.execute("ALTER TABLE paper_trades ADD COLUMN slip REAL")
         conn.commit()
     # bản cũ ghi chú cố định "đang giữ" khi ghi nhận mua (không đổi khi bán): bỏ, trạng thái giờ tính từ Danh mục
-    if conn.execute("UPDATE watchlist SET note=NULL WHERE note='đang giữ'").rowcount:
+    if conn.execute("SELECT 1 FROM watchlist WHERE note='đang giữ' LIMIT 1").fetchone():   # chỉ ghi khi còn cần dọn
+        conn.execute("UPDATE watchlist SET note=NULL WHERE note='đang giữ'")
         conn.commit()
     if "replay" not in {r[1] for r in conn.execute("PRAGMA table_info(signals)")}:
         # tín hiệu có trước cột này không biết là báo thật hay tạo lại: coi là tạo lại để không làm đẹp kết quả

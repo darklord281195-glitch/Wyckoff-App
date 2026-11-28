@@ -28,7 +28,26 @@ from .backtest import BUY_FEE, SELL_FEE
 app = FastAPI(title="Wyckoff Scanner")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
                    allow_methods=["*"], allow_headers=["*"])
-conn = connect()
+class _ThreadConn:
+    """Mỗi luồng một kết nối SQLite. FastAPI chạy các endpoint đồng bộ song song trong thread pool; một đối tượng
+    sqlite3.Connection dùng chung nhiều luồng thỉnh thoảng trả kết quả sai (vd fetchone() = None) -> lỗi 500, mà lỗi 500
+    không có header CORS nên trình duyệt chỉ báo "Failed to fetch" (trang Tổng quan gọi nhiều API cùng lúc)."""
+
+    def __init__(self):
+        self._local = threading.local()
+        self._local.conn = connect()             # luồng khởi động: tạo bảng / nâng cấp DB một lần
+
+    def _get(self):
+        c = getattr(self._local, "conn", None)
+        if c is None:
+            c = self._local.conn = connect(init=False)
+        return c
+
+    def __getattr__(self, name):
+        return getattr(self._get(), name)
+
+
+conn = _ThreadConn()
 _lock = threading.Lock()
 _scan_state = {"running": False, "last": None}
 
