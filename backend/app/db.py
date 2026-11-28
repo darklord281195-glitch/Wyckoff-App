@@ -65,6 +65,10 @@ CREATE TABLE IF NOT EXISTS job_runs (             -- mỗi lần chạy tác v�
   status TEXT,                                     -- ok / skipped (nghỉ lễ) / error
   detail TEXT                                      -- JSON: phiên, số mã, mã lỗi, mã dùng nguồn dự phòng, lỗi...
 );
+CREATE TABLE IF NOT EXISTS rank_daily (           -- Top tiềm năng mỗi phiên quét (core/rank.py): mọi mã đủ thanh khoản
+  date TEXT NOT NULL, sym TEXT NOT NULL, total INT, w INT, t INT, f INT, eligible INT,   -- điểm % tổng + 3 mục; eligible = có điểm mua
+  PRIMARY KEY (date, sym)
+);
 CREATE TABLE IF NOT EXISTS watchlist (
   sym TEXT PRIMARY KEY, note TEXT, added TEXT DEFAULT (date('now'))
 );

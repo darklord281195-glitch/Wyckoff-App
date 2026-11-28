@@ -23,6 +23,7 @@ from .core import sectors as sectors_mod
 from .core import fundamentals as fund
 from .core import paper
 from .core import mcdx
+from .core import rank as rank_mod
 from .core import data as data_mod
 from . import health
 
@@ -164,8 +165,14 @@ def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log
     conn.commit()
     log.info("Phân tích %d mã, bỏ qua %d mã (dưới 120 phiên hoặc không giao dịch phiên %s)",
              len(results), skipped, scan_date)
+    top10 = None
+    if not symbols and not groups:          # Top 10 tiềm năng: lưu snapshot phiên (kể cả phiên cũ), so với phiên trước
+        try:
+            top10 = rank_mod.daily_top(conn, scan_date, market["light"])
+        except Exception as e:
+            log.warning("Không tính được Top 10 tiềm năng: %s", e)
 
-    msg = format_message(scan_date, market, all_sigs, results, errors, hidden, kinds)
+    msg = format_message(scan_date, market, all_sigs, results, errors, hidden, kinds, top10)
     fb = sorted(data_mod.FALLBACK_USED) if refresh else []
     if fb:
         log.warning("VNDirect lỗi: %d mã lấy giá từ nguồn dự phòng DNSE: %s", len(fb), ", ".join(fb))
@@ -206,7 +213,21 @@ def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log
     return dict(date=scan_date, signals=all_sigs, n=len(results), errors=errors, message=msg)
 
 
-def format_message(scan_date, market, sigs, results, errors, hidden=(), kinds=()) -> str:
+def format_top(top: dict, light: str | None = None) -> list[str]:
+    """Đoạn Top 10 tiềm năng trong tin cuối ngày (top = rank.daily_top)."""
+    rows = top.get("rows") or []
+    if not rows:
+        return []
+    out = [f"\n🏆 Top {len(rows)} tiềm năng (điểm %: Wyckoff · KT&CB · Dòng tiền)"
+           + (" (đèn đỏ: chỉ để theo dõi)" if light == "red" else "") + ":",
+           "  " + " · ".join(f"{x['sym']} {x['total']}" + (" 🆕" if x.get("new") else "") for x in rows)]
+    if top.get("dropped"):
+        out.append("  Rời top: " + ", ".join(x["sym"] for x in top["dropped"]))
+    out.append(f"  {WEB_URL}/top")
+    return out
+
+
+def format_message(scan_date, market, sigs, results, errors, hidden=(), kinds=(), top=None) -> str:
     c = market.get("c")
     head = (f"📊 Wyckoff {fmt.date_full(scan_date)} · VNINDEX {fmt.num(c, 2)} ({fmt.pct(market.get('chg') or 0, 2)}) "
             f"{LIGHT_ICON[market['light']]}\n{market['text']}") if c else "📊 Wyckoff"
@@ -236,6 +257,8 @@ def format_message(scan_date, market, sigs, results, errors, hidden=(), kinds=()
     dlist = sorted([(s, r) for s, r in results.items() if r["stage"] == "D" and s not in flagged
                     and r["liq"] >= MIN_LIQ_BIL and not r.get("weak_drop")],
                    key=lambda t: -(t[1].get("rs20") or -99))
+    if top:
+        lines += format_top(top, market.get("light"))
     if dlist:
         lines.append("\n📋 Pha D đang theo dõi:")
         lines.append("  " + " · ".join(f"{s} {r['tag']}" for s, r in dlist))

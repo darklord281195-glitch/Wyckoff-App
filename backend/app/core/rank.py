@@ -288,3 +288,104 @@ def rank(conn, d: str, min_liq: float = MIN_LIQ_BIL, light: str | None = None) -
     for x in rows:
         x["pct_rank"] = round(100 * sum(v < x["total"] for v in el) / len(el)) if el else None
     return rows
+
+
+# ---------------------------------------------------------------- Lưu mỗi phiên + thay đổi
+def save_daily(conn, d: str, light: str | None = None) -> list[dict]:
+    """Chấm phiên d (GT ≥ MIN_LIQ_BIL) và ghi đè snapshot của phiên đó vào rank_daily. Trả các dòng đã chấm."""
+    rows = rank(conn, d, MIN_LIQ_BIL, light)
+    conn.execute("DELETE FROM rank_daily WHERE date=?", (d,))
+    conn.executemany("INSERT INTO rank_daily(date,sym,total,w,t,f,eligible) VALUES (?,?,?,?,?,?,?)",
+                     [(d, x["sym"], x["total"], x["pillars"]["wyckoff"]["score"], x["pillars"]["tech"]["score"],
+                       x["pillars"]["flow"]["score"], int(x["eligible"])) for x in rows])
+    conn.commit()
+    return rows
+
+
+def compare_date(conn, d: str, vs: str = "prev") -> str | None:
+    """Phiên để so sánh: 'prev' = phiên quét gần nhất trước d; 'week' = phiên quét thứ 5 trước d
+    (không đủ thì phiên cũ nhất có). None nếu không có phiên nào trước d."""
+    k = 5 if vs == "week" else 1
+    ds = [x[0] for x in conn.execute("SELECT DISTINCT date FROM scan_results WHERE date<? ORDER BY date DESC LIMIT ?",
+                                     (d, k))]
+    return ds[-1] if ds else None
+
+
+def order(rows: list[dict], eligible_only: bool = True) -> list[dict]:
+    return [x for x in rows if x["eligible"] or not eligible_only]
+
+
+def positions_of(rows: list[dict], eligible_only: bool = True) -> dict:
+    """{mã: hạng (từ 1)} theo thứ tự của rows (đã sắp xếp)."""
+    return {x["sym"]: i for i, x in enumerate(order(rows, eligible_only), 1)}
+
+
+def positions(conn, d: str, min_liq: float = MIN_LIQ_BIL, eligible_only: bool = True, rows=None) -> dict:
+    """{mã: hạng} phiên d: từ rank_daily nếu có (và min_liq = MIN_LIQ_BIL), không thì chấm lại (hoặc dùng rows đã chấm)."""
+    if rows is None and min_liq == MIN_LIQ_BIL:
+        q = "SELECT sym FROM rank_daily WHERE date=?" + (" AND eligible=1" if eligible_only else "") + \
+            " ORDER BY total DESC, w DESC, sym"
+        got = [x[0] for x in conn.execute(q, (d,))]
+        if got:
+            return {s: i for i, s in enumerate(got, 1)}
+    return positions_of(rows if rows is not None else rank(conn, d, min_liq), eligible_only)
+
+
+def changes(cur_rows: list[dict], prev_pos: dict, n: int, eligible_only: bool = True) -> list[dict]:
+    """Gắn prev_pos / new (không nằm trong top n trước đó) vào từng dòng của cur_rows (mọi mã đủ thanh khoản, đã sắp
+    xếp). Trả các mã rời top n: dict(sym, prev_pos, pos, total) hoặc dict(sym, prev_pos, reason)."""
+    ordered = order(cur_rows, eligible_only)
+    for x in ordered:
+        x["prev_pos"] = prev_pos.get(x["sym"])
+        x["new"] = bool(prev_pos) and (x["prev_pos"] is None or x["prev_pos"] > n)
+    top = {x["sym"] for x in ordered[:n]}
+    pos = {x["sym"]: (i, x) for i, x in enumerate(ordered, 1)}
+    every = {x["sym"] for x in cur_rows}
+    dropped = []
+    for s, p in sorted(prev_pos.items(), key=lambda kv: kv[1]):
+        if p > n or s in top:
+            continue
+        if s in pos:
+            dropped.append(dict(sym=s, prev_pos=p, pos=pos[s][0], total=pos[s][1]["total"]))
+        else:
+            dropped.append(dict(sym=s, prev_pos=p, reason="không còn điểm mua" if s in every else "không còn đủ thanh khoản"))
+    return dropped
+
+
+def in_top(conn, d: str, n: int = 10, last: int = 20) -> tuple[dict, int]:
+    """({mã: số phiên nằm trong top n (thứ tự mã có điểm mua)}, số phiên đã xét): tối đa `last` snapshot ≤ d."""
+    ds = [x[0] for x in conn.execute("SELECT DISTINCT date FROM rank_daily WHERE date<=? ORDER BY date DESC LIMIT ?",
+                                     (d, last))]
+    cnt: dict = {}
+    for day in ds:
+        for (s,) in conn.execute("SELECT sym FROM rank_daily WHERE date=? AND eligible=1 ORDER BY total DESC, w DESC, sym "
+                                 "LIMIT ?", (day, n)):
+            cnt[s] = cnt.get(s, 0) + 1
+    return cnt, len(ds)
+
+
+def daily_top(conn, d: str, light: str | None, n: int = 10) -> dict:
+    """Sau lần quét: lưu snapshot phiên d, trả top n mã có điểm mua (cờ new so với phiên trước) + các mã rời top."""
+    rows = save_daily(conn, d, light)
+    prev = compare_date(conn, d, "prev")
+    prev_pos = positions(conn, prev) if prev else {}
+    dropped = changes(rows, prev_pos, n)
+    return dict(date=d, light=light, prev=prev, rows=order(rows)[:n], dropped=dropped)
+
+
+def light_at(conn, d: str) -> str | None:
+    """Đèn thị trường của phiên quét d (từ dòng VNINDEX trong scan_results), như api.market."""
+    from .market import traffic_light
+    row = conn.execute("SELECT data FROM scan_results WHERE sym=? AND date=?", (INDEX, d)).fetchone()
+    res = json.loads(row[0]) if row else None
+    return traffic_light(res, res and res.get("breadth"))["light"] if res else None
+
+
+def backfill_daily(conn, log=print) -> int:
+    """Ghi snapshot rank_daily cho mọi phiên đã có trong scan_results mà chưa có snapshot (tăng dần). Trả số phiên."""
+    have = {x[0] for x in conn.execute("SELECT DISTINCT date FROM rank_daily")}
+    todo = [x[0] for x in conn.execute("SELECT DISTINCT date FROM scan_results ORDER BY date") if x[0] not in have]
+    for d in todo:
+        rows = save_daily(conn, d, light_at(conn, d))
+        log(f"{d}: {len(rows)} mã đủ thanh khoản · {sum(x['eligible'] for x in rows)} mã có điểm mua")
+    return len(todo)
