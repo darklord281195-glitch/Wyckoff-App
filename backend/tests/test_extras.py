@@ -147,6 +147,26 @@ def test_quarters_back():
     assert _quarters_back("2026-09-30", 4) == "2025-09-30" and _quarters_back("2026-03-31", 1) == "2025-12-31"
 
 
+def test_proprietary_zero_days_coverage_and_cache(tmp_path):
+    from app.core.proprietary import get_prop
+    conn = connect(tmp_path / "t.db")
+    for d in ("2026-11-24", "2026-11-25", "2026-11-26", "2026-11-27"):
+        conn.execute("INSERT INTO ohlcv(sym,d,o,h,l,c,v) VALUES ('TCH',?,1,1,1,1,1)", (d,))
+    conn.commit()
+    calls = []
+    def fake(sym, size=400):
+        calls.append(sym)
+        return [dict(d="2026-11-27", buy=0.0, sell=0.27), dict(d="2026-11-25", buy=0.17, sell=0.0)], "2026-11-27"
+    rows, err = get_prop(conn, "TCH", None, 10, fetcher=fake)
+    assert err is None and [r["d"] for r in rows] == ["2026-11-25", "2026-11-26", "2026-11-27"]   # 24/11: trước khi nguồn có dữ liệu
+    assert rows[1]["net"] == 0 and rows[2]["net"] == -0.27                                       # 26/11 không giao dịch = 0
+    get_prop(conn, "TCH", None, 10, fetcher=fake)
+    assert len(calls) == 1                                                                       # không có gì mới: không tải lại
+    conn.execute("INSERT INTO ohlcv(sym,d,o,h,l,c,v) VALUES ('TCH','2026-11-30',1,1,1,1,1)"); conn.commit()
+    rows, _ = get_prop(conn, "TCH", None, 10, fetcher=fake)
+    assert len(calls) == 2 and rows[-1]["d"] == "2026-11-27"                                     # nguồn chưa có 30/11: không coi là 0
+
+
 def test_listing_api(tmp_path, monkeypatch):
     from app.universe import SCHEMA as LISTING_SCHEMA
     conn = connect(tmp_path / "t.db")

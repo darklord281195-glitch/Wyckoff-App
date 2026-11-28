@@ -11,6 +11,7 @@ from .core.wyckoff import analyse, trim, ANALYSIS_DAYS
 from .core.market import traffic_light
 from .core.positions import simulate
 from .core.foreign import get_foreign, MAX_SESSIONS as FX_MAX
+from .core.proprietary import get_prop
 from .core import risk as risk_mod
 from .core import journal as journal_mod
 from .core import forward as forward_mod
@@ -210,7 +211,9 @@ def symbol(code: str, at: dt.date | None = None, start: dt.date | None = Query(N
         raise HTTPException(400, "Ngày bắt đầu phải trước ngày kết thúc")
     R, res = _analysis(code, at, start)
     full = get_ohlcv(conn, code, 10000, refresh=False)
-    fx, fx_err = get_foreign(conn, code, at, _fx_sessions(code, at, res)) if len(code) == 3 else ([], None)   # chỉ cổ phiếu
+    n_fx = _fx_sessions(code, at, res)
+    fx, fx_err = get_foreign(conn, code, at, n_fx) if len(code) == 3 else ([], None)   # khối ngoại, tự doanh: chỉ cổ phiếu
+    prop, prop_err = get_prop(conn, code, at, n_fx) if len(code) == 3 else ([], None)
     fundamentals = _fundamentals(code, at) if len(code) == 3 else None
     kind = ((res or {}).get("plan") or {}).get("kind")
     st = kind and conn.execute("SELECT * FROM backtest_stats WHERE plan=?", (kind.split(" (")[0],)).fetchone()
@@ -224,7 +227,7 @@ def symbol(code: str, at: dt.date | None = None, start: dt.date | None = Query(N
     return dict(sym=code, groups=group_of(code, lst), name=info.get("name"), floor=info.get("floor"),
                 sector=info.get("icb_name"), unit="pt" if len(code) > 3 else "k",    # VNM, VND... là cổ phiếu
                 ohlcv=full,
-                analysis=res, signals=signals(120, code, at), at=at, start=start, foreign=fx, foreign_error=fx_err, plan_stats=dict(st) if st else None,
+                analysis=res, signals=signals(120, code, at), at=at, start=start, foreign=fx, foreign_error=fx_err, proprietary=prop, proprietary_error=prop_err, plan_stats=dict(st) if st else None,
                 scenario_stats=dict(light=light, rows=sc), fundamentals=fundamentals, in_watchlist=code in watchlist(conn))
 
 

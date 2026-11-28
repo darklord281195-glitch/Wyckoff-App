@@ -119,6 +119,8 @@ export type SymbolData = {
   at: string | null;   // ngày đang xem (null = phiên mới nhất)
   start: string | null; // đầu khoảng phân tích tự chọn (null = dò mặc định 190 phiên)
   foreign: Foreign[]; foreign_error: string | null;
+  /** tự doanh CTCK theo phiên (tỷ đồng, nguồn CafeF ~1 năm); phiên không giao dịch = 0 */
+  proprietary?: { d: string; buy: number; sell: number; net: number }[]; proprietary_error?: string | null;
   plan_stats: PlanStats | null;
   /** tỷ lệ kịch bản lịch sử của loại kế hoạch hiện tại theo đèn ('*' = mọi đèn); light = đèn phiên đang xem */
   scenario_stats?: { light: string | null; rows: ScenarioStat[] };
