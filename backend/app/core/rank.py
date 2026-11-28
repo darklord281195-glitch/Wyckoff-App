@@ -1,0 +1,289 @@
+"""Top tiềm năng: chấm mỗi mã theo 3 mục ngang nhau (Wyckoff · Kỹ thuật & Cơ bản · Dòng tiền), mỗi mục 0–100.
+
+Đây là bảng xếp hạng để tham khảo, KHÔNG phải luật mua: không đổi tín hiệu, luật ẩn theo đèn hay tự mua thử nghiệm.
+Trọng số và thang điểm là ước lượng; kiểm chứng lịch sử bằng `python -m app.rank_bt`.
+
+Mỗi mục trả dict(score, items); mỗi item dict(key, label, text, pts, max, tone), tone ∈ good / warn / bad / info
+(frontend hiển thị theo cấu trúc chung này).
+"""
+import datetime as dt
+import json
+
+from ..config import MIN_LIQ_BIL
+from ..fmt import num, pct, price as _p
+from . import fundamentals as fund
+from . import mcdx as mcdx_mod
+from .foreign import net_sum
+from .indicators import rsi, macd, ichimoku
+
+WEIGHTS = dict(wyckoff=1 / 3, tech=1 / 3, flow=1 / 3)   # 3 mục ngang nhau (người dùng chốt)
+FX_SCALE = 10       # khối ngoại: mua ròng 20 phiên = ±10% GT giao dịch 20 phiên thì đạt điểm tối đa / tối thiểu
+PROP_SCALE = 3      # tự doanh: ±3% (phân bố 27/11/2026: phần lớn trong ±2%; khối ngoại p10/p90 = −13,8% / +6,4%)
+MIN_BARS = 80       # ít nến hơn: phần kỹ thuật thiếu dữ liệu cho nửa điểm
+INDEX = "VNINDEX"
+
+# Mục 1 – điểm pha Wyckoff theo tag (B/C cộng thêm nếu có Spring/ST gần đây, xem wyckoff_pillar)
+PHASE_PTS = {"D-LPS": 40, "D sớm": 36, "D-LPS?": 34, "D-SOS": 30, "sát trần": 28, "B/C": 18,
+             "E?": 10, "SOS hỏng": 6, "mới tạo đáy": 4}
+MCDX_PTS = {"enter": 20, "lead": 18, "hold": 12, "fade": 7, "spec": 5, "exit": 0, "none": 0}
+
+
+def _item(key, label, text, pts, mx, tone=None):
+    pts = round(pts, 1)
+    if tone is None:
+        r = pts / mx if mx else 0
+        tone = "good" if r >= 0.7 else "warn" if r >= 0.4 else "bad"
+    return dict(key=key, label=label, text=text, pts=pts, max=mx, tone=tone)
+
+
+def _pillar(items, lo=0, hi=100):
+    return dict(score=int(round(min(hi, max(lo, sum(x["pts"] for x in items))))), items=items)
+
+
+def _clamp(x, lo, hi):
+    return min(hi, max(lo, x))
+
+
+def _test_kind(r, p):
+    """Spring/ST của kế hoạch Spring/Test (bản quét cũ chưa có test_kind: sự kiện cuối, giống api.scan_latest)."""
+    if p.get("test_kind"):
+        return p["test_kind"]
+    if p.get("kind") == "Spring/Test":
+        return next((e["k"] for e in reversed(r.get("events") or []) if e["k"] in ("Spring", "ST")), None)
+    return None
+
+
+def main_target(p: dict) -> dict | None:
+    return next((t for t in p.get("targets") or [] if t.get("k") == p.get("main_target")), None)
+
+
+# ---------------------------------------------------------------- Mục 1: Wyckoff
+def wyckoff_pillar(r: dict, stats_by_plan: dict | None = None) -> dict:
+    """r: kết quả analyse() hoặc một dòng scan_results. Điểm kẹp trong 0–100."""
+    p = r.get("plan") or {}
+    tag, c = r.get("tag") or "?", r.get("c")
+    items = []
+    # pha
+    test = _test_kind(r, p)
+    if tag == "B/C":
+        pts = 18 + (12 if test == "Spring" else 6 if test == "ST" else 0)
+        text = "Pha B/C" + (f", có {test} gần đây" if test else "")
+    elif tag == "dưới hỗ trợ":
+        pts = 12 if p.get("kind") == "Spring/Test" else 8
+        text = "dưới hỗ trợ" + (" (kế hoạch Spring/Test)" if pts == 12 else "")
+    else:
+        pts = PHASE_PTS.get(tag, 10)
+        text = tag + (f" · {r['extra']}" if r.get("extra") else "")
+    items.append(_item("phase", "Pha", text, pts, 40))
+    # điểm sẵn sàng
+    ready = (p.get("ready") or {}).get("score")
+    rs = ready or 0
+    pts = 20 if rs >= 80 else 16 if rs >= 70 else 12 if rs >= 60 else 4
+    items.append(_item("ready", "Điểm sẵn sàng", f"{ready}/100" + (" (dưới 60: backtest R TB âm)" if rs < 60 else "")
+                       if ready is not None else "chưa có kế hoạch", pts, 20))
+    # giá so với vùng vào
+    lo, hi, stop = p.get("entry_lo"), p.get("entry_hi"), p.get("stop")
+    if not (lo and hi and c):
+        pts, text = 0, "không có vùng vào"
+    elif p.get("in_zone") or lo <= c <= hi:
+        pts, text = 15, f"trong vùng vào {_p(lo)}–{_p(hi)}"
+    elif c < lo and (not stop or c > stop):
+        pts, text = 10, f"dưới vùng vào {_p(lo)}, trên cắt lỗ"
+    elif c > hi and c <= hi * 1.03:
+        pts, text = 6, f"trên vùng vào {pct((c / hi - 1) * 100)}"
+    else:
+        pts, text = 0, (f"cách vùng vào {pct((c / hi - 1) * 100)}" if c > hi else "dưới cắt lỗ")
+    items.append(_item("zone", "Giá so với vùng vào", text, pts, 15))
+    # lời/lỗ
+    rr = p.get("rr")
+    pts = 0 if rr is None else 15 if rr >= 3 else 10 if rr >= 2 else 5 if rr >= 1.5 else 0
+    items.append(_item("rr", "Lời/lỗ", f"{num(rr, 1)} lần" if rr is not None else "–", pts, 15))
+    # dư địa tới mục tiêu chính
+    t = main_target(p)
+    up = (t["price"] / c - 1) * 100 if t and c else None
+    pts = 0 if up is None else 10 if up >= 25 else 7 if up >= 15 else 4 if up >= 8 else 0
+    items.append(_item("upside", "Dư địa tới mục tiêu", f"{t['k']} {_p(t['price'])} ({pct(up)})" if up is not None else "–",
+                       pts, 10))
+    # trừ điểm
+    if r.get("lh"):
+        items.append(_item("lh", "Đỉnh hạ", f"{len(r['lh'])} đỉnh hạ liên tiếp: cầu yếu", -8, 0, "bad"))
+    if r.get("distrib"):
+        items.append(_item("distrib", "Phân phối", f"đang có vùng phân phối ({r['distrib'].get('tag')})", -10, 0, "bad"))
+    # lịch sử loại kế hoạch (thông tin, 0 điểm)
+    kind = (p.get("kind") or "").split(" (")[0]
+    st = (stats_by_plan or {}).get(kind)
+    if st:
+        items.append(_item("plan_stats", "Lịch sử loại kế hoạch",
+                           f"{kind}: chạm T1 {num(st['hit_t1'], 1)}% · R TB {'+' if st['avg_r'] > 0 else ''}{num(st['avg_r'], 2)}",
+                           0, 0, "info"))
+    return _pillar(items)
+
+
+# ---------------------------------------------------------------- Mục 2: Kỹ thuật & Cơ bản
+def fund_part(m: dict | None) -> dict:
+    """Cơ bản (tối đa 20), cùng ngưỡng thẻ Cơ bản trên trang mã. Không tính P/E (không có số liệu theo thời điểm)."""
+    lv, txt = [], []
+    if m:
+        if m.get("np_ttm") is not None:
+            lv.append("good" if m["np_ttm"] > 0 else "bad"); txt.append(f"lãi 4 quý {num(m['np_ttm'])} tỷ")
+        g = m.get("np_growth")
+        if g is not None:
+            lv.append("good" if g >= 15 or g >= 999 else "mid" if g >= 0 else "bad")
+            txt.append("hết lỗ" if g >= 999 else f"tăng {pct(g, 0)}")
+        if m.get("roe") is not None:
+            lv.append("good" if m["roe"] >= 15 else "mid" if m["roe"] >= 10 else "bad"); txt.append(f"ROE {num(m['roe'], 0)}%")
+        if m.get("np_ttm") is not None and m.get("revenue_ttm"):
+            mg = m["np_ttm"] / m["revenue_ttm"] * 100
+            lv.append("good" if mg >= 15 else "mid" if mg >= 5 else "bad"); txt.append(f"biên {num(mg, 0)}%")
+        de = m.get("debt_equity")
+        if de is not None and de != 0:
+            lv.append("good" if de < 0.5 else "mid" if de <= 1.5 else "bad"); txt.append(f"nợ vay/VCSH {num(de, 1)}")
+    if len(lv) < 2:
+        return _item("fund", "BCTC", "chưa đủ BCTC", 10, 20, "info")
+    pts = 20 * (lv.count("good") + 0.5 * lv.count("mid")) / len(lv)
+    return _item("fund", "BCTC", f"{lv.count('good')} tốt · {lv.count('mid')} TB · {lv.count('bad')} yếu ({', '.join(txt)})",
+                 pts, 20)
+
+
+def tech_pillar(bars: list[dict], fund_m: dict | None) -> dict:
+    """bars: cửa sổ 500 ngày tính tới phiên đang chấm. 5 phần, mỗi phần tối đa 20."""
+    cl = [b["c"] for b in bars]
+    short = len(bars) < MIN_BARS
+    half = lambda key, label: _item(key, label, "chưa đủ dữ liệu", 10, 20, "info")
+    items = []
+    # RSI 14
+    x = None if short else rsi(cl, 14)[-1]
+    if x is None:
+        items.append(half("rsi", "RSI 14"))
+    else:
+        pts, w = ((20, "vùng khỏe") if 50 <= x < 65 else (14, "mạnh, gần quá mua") if 65 <= x < 75 else
+                  (12, "trung tính") if 45 <= x < 50 else (6, "quá mua") if x >= 75 else
+                  (8, "yếu") if x >= 35 else (4, "quá bán"))
+        items.append(_item("rsi", "RSI 14", f"{num(x, 0)} · {w}", pts, 20))
+    # MACD 12-26-9
+    m = None if short else macd(cl)
+    if not m or m["macd"][-1] is None or m["hist"][-2] is None:
+        items.append(half("macd", "MACD"))
+    else:
+        a, s, h, h0 = m["macd"][-1], m["signal"][-1], m["hist"][-1], m["hist"][-2]
+        pts = (8 if a > s else 0) + (6 if h > h0 else 0) + (6 if a > 0 else 0)
+        w = [("trên" if a > s else "dưới") + " đường tín hiệu", "histogram " + ("tăng" if h > h0 else "giảm"),
+             ("trên" if a > 0 else "dưới") + " 0"]
+        items.append(_item("macd", "MACD", " · ".join(w), pts, 20))
+    # MCDX Plus
+    mc = None if short else mcdx_mod.last(cl)
+    if not mc:
+        items.append(half("mcdx", "MCDX (tay to)"))
+    else:
+        items.append(_item("mcdx", "MCDX (tay to)", f"{mc['label']} · banker {num(mc['banker'], 0)}%",
+                           MCDX_PTS.get(mc["state"], 0), 20))
+    # Ichimoku
+    ic = None if short else ichimoku(bars)
+    n = len(bars)
+    if not ic or ic["span_a"][n - 1] is None or ic["span_b"][n - 1] is None or ic["kijun"][-1] is None:
+        items.append(half("ichimoku", "Ichimoku"))
+    else:
+        c = cl[-1]
+        top, bot = max(ic["span_a"][n - 1], ic["span_b"][n - 1]), min(ic["span_a"][n - 1], ic["span_b"][n - 1])
+        pos, w = (8, "trên mây") if c > top else (4, "trong mây") if c >= bot else (0, "dưới mây")
+        tk, kj = ic["tenkan"][-1], ic["kijun"][-1]
+        cross, wc = (6, "Tenkan > Kijun") if tk > kj else (3, "Tenkan = Kijun") if tk == kj else (0, "Tenkan < Kijun")
+        fa, fb = ic["span_a"][n - 1 + 26], ic["span_b"][n - 1 + 26]
+        green = fa is not None and fb is not None and fa > fb
+        mom = n > 26 and c > cl[-27]
+        pts = pos + cross + (3 if green else 0) + (3 if mom else 0)
+        items.append(_item("ichimoku", "Ichimoku", f"{w} · {wc} · mây trước {'xanh' if green else 'đỏ'}"
+                           f" · giá {'trên' if mom else 'dưới'} 26 phiên trước", pts, 20))
+    items.append(fund_part(fund_m))
+    return _pillar(items)
+
+
+# ---------------------------------------------------------------- Mục 3: Dòng tiền
+def _flow_item(key, label, net, net5, liq, scale):
+    if net is None or not liq:
+        return _item(key, label, "chưa có dữ liệu", 25, 50, "info")
+    ratio = net / (liq * 20) * 100
+    pts = 25 + 25 * _clamp(ratio / scale, -1, 1)
+    tone = "good" if pts >= 30 else "bad" if pts <= 20 else "info"
+    text = f"20 phiên {'+' if net > 0 else ''}{num(net, 1)} tỷ ({pct(ratio)} GT)"
+    if net5 is not None:
+        text += f" · 5 phiên {'+' if net5 > 0 else ''}{num(net5, 1)} tỷ"
+    return _item(key, label, text, pts, 50, tone)
+
+
+def flow_pillar(liq, fx20, fx5, prop: dict | None) -> dict:
+    """Khối ngoại (tối đa 50) + tự doanh (tối đa 50): mua ròng 20 phiên so với GT giao dịch 20 phiên."""
+    return _pillar([_flow_item("foreign", "Khối ngoại", fx20, fx5, liq, FX_SCALE),
+                    _flow_item("prop", "Tự doanh", (prop or {}).get("net"), (prop or {}).get("net5"), liq, PROP_SCALE)])
+
+
+# ---------------------------------------------------------------- Tổng hợp
+def score_symbol(r, bars, fund_m, fx20, fx5, prop, stats_by_plan=None) -> dict:
+    pillars = dict(wyckoff=wyckoff_pillar(r, stats_by_plan), tech=tech_pillar(bars, fund_m),
+                   flow=flow_pillar(r.get("liq"), fx20, fx5, prop))
+    total = int(round(sum(WEIGHTS[k] * v["score"] for k, v in pillars.items())))
+    items = [x for v in pillars.values() for x in v["items"]]
+    good = sorted([x for x in items if x["tone"] == "good" and x["max"] > 0], key=lambda x: -x["pts"] / x["max"])
+    return dict(total=total, pillars=pillars, highlights=good[:3], warnings=[x for x in items if x["tone"] == "bad"])
+
+
+def eligible(r: dict) -> bool:
+    """Có điểm mua: kế hoạch có vùng vào và cắt lỗ."""
+    p = r.get("plan") or {}
+    return bool(p.get("entry_hi") and p.get("stop"))
+
+
+def bars_until(conn, sym: str, d: str, days: int = 500) -> list[dict]:
+    """Nến trong (d − days ngày, d], giống cửa sổ 500 ngày của scan.py."""
+    since = (dt.date.fromisoformat(d) - dt.timedelta(days=days)).isoformat()
+    return [dict(x) for x in conn.execute("SELECT d,o,h,l,c,v FROM ohlcv WHERE sym=? AND d>? AND d<=? ORDER BY d",
+                                          (sym, since, d))]
+
+
+def plan_stats(conn) -> dict:
+    """{loại kế hoạch: dict(n, hit_t1, avg_r)} từ backtest_stats."""
+    try:
+        return {x["plan"]: dict(n=x["n"], hit_t1=x["hit_t1"], avg_r=x["avg_r"])
+                for x in conn.execute("SELECT plan, n, hit_t1, avg_r FROM backtest_stats")}
+    except Exception:
+        return {}
+
+
+def _sort_key(x):
+    return (-x["total"], -x["pillars"]["wyckoff"]["score"], x["sym"])
+
+
+LIGHT_WARN = {"red": "Đèn đỏ: luật app không mở lệnh mới", "yellow": "Đèn vàng: luật app ẩn LPS/D sớm"}
+
+
+def rank(conn, d: str, min_liq: float = MIN_LIQ_BIL, light: str | None = None) -> list[dict]:
+    """Chấm mọi mã của phiên quét d có GT TB20 ≥ min_liq (bỏ VNINDEX); sắp xếp điểm giảm dần, rồi điểm Wyckoff."""
+    from ..universe import listing
+    lst, stats = listing(conn), plan_stats(conn)
+    rows = []
+    for sym, data in conn.execute("SELECT sym, data FROM scan_results WHERE date=? AND sym<>?", (d, INDEX)).fetchall():
+        r = json.loads(data)
+        if not r or (r.get("liq") or 0) < min_liq:
+            continue
+        fm = fund.metrics_at(fund.load(conn, sym), d)
+        s = score_symbol(r, bars_until(conn, sym, d), fm, net_sum(conn, sym, d, 20), net_sum(conn, sym, d, 5),
+                         None, stats)
+        p, info = r.get("plan") or {}, lst.get(sym) or {}
+        t = main_target(p)
+        ok = eligible(r)
+        if light == "red":
+            s["warnings"].append(_item("light", "Đèn", LIGHT_WARN["red"], 0, 0, "bad"))
+        elif light == "yellow" and ((r.get("tag") or "").startswith("D-LPS") or r.get("tag") == "D sớm"):
+            s["warnings"].append(_item("light", "Đèn", LIGHT_WARN["yellow"], 0, 0, "bad"))
+        rows.append(dict(sym=sym, name=info.get("name"), icb_name=info.get("icb_name"), floor=info.get("floor"),
+                         c=r.get("c"), chg=r.get("chg"), tag=r.get("tag"), stage=r.get("stage"), plan_kind=p.get("kind"),
+                         entry_lo=p.get("entry_lo"), entry_hi=p.get("entry_hi"), stop=p.get("stop"), rr=p.get("rr"),
+                         in_zone=p.get("in_zone"),
+                         target=dict(k=t["k"], price=t["price"], upside=round((t["price"] / r["c"] - 1) * 100, 1))
+                         if t and r.get("c") else None,
+                         liq=r.get("liq"), eligible=ok, **s))
+    rows.sort(key=_sort_key)
+    el = [x["total"] for x in rows if x["eligible"]]
+    for x in rows:
+        x["pct_rank"] = round(100 * sum(v < x["total"] for v in el) / len(el)) if el else None
+    return rows
