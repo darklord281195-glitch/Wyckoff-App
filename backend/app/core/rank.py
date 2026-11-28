@@ -275,6 +275,9 @@ def pct_scores(raws: list[dict], ref: list[dict] | None = None) -> list[dict]:
 
 # Điểm vào đẹp theo Wyckoff (bộ lọc trên trang Top): khóa -> nhãn
 SETUPS = {"spring": "Spring / chuẩn bị Spring", "near": "Sát trần", "sos": "SOS phá trần", "lps": "D-LPS"}
+# mặc định của công thức mới (trang, tin Telegram, lịch sử): chỉ 4 điểm vào đẹp (người dùng chốt 28/11/2026;
+# kiểm chứng top 10 vượt TB thị trường +0,71% / +0,98% mỗi 20 phiên ở 2019–23 / 2024–26). Công thức cũ: mọi mã có điểm mua.
+DEFAULT_SETUPS = {"new": frozenset(SETUPS), "old": None}
 
 
 def setup_of(r: dict) -> tuple[str | None, str | None]:
@@ -421,13 +424,14 @@ def save_daily(conn, d: str, light: str | None = None) -> list[dict]:
     = phần trăm cung cạn / biến động thấp / sẵn sàng). Trả mọi dòng đã chấm."""
     rows = rank(conn, d, MIN_LIQ_BIL, light)
     conn.execute("DELETE FROM rank_daily WHERE date=?", (d,))
-    conn.executemany("INSERT INTO rank_daily(date,sym,total,w,t,f,eligible) VALUES (?,?,?,?,?,?,?)",
+    conn.executemany("INSERT INTO rank_daily(date,sym,total,w,t,f,eligible,setup,pool) VALUES (?,?,?,?,?,?,?,?,?)",
                      [(d, x["sym"], x["total"], round(x["parts"]["dry"]), round(x["parts"]["vol"]),
-                       round(x["parts"]["ready"]), int(x["eligible"])) for x in rows if not x["excluded"]])
+                       round(x["parts"]["ready"]), int(x["eligible"]), x["setup"], int(not x["excluded"]))
+                      for x in rows if x["total"] is not None])
     conn.execute("DELETE FROM rank_daily_ref WHERE date=?", (d,))
-    conn.executemany("INSERT INTO rank_daily_ref(date,sym,total,w,t,f,eligible) VALUES (?,?,?,?,?,?,?)",
+    conn.executemany("INSERT INTO rank_daily_ref(date,sym,total,w,t,f,eligible,setup,pool) VALUES (?,?,?,?,?,?,?,?,1)",
                      [(d, x["sym"], x["ref_total"], x["pillars"]["wyckoff"]["score"], x["pillars"]["tech"]["score"],
-                       x["pillars"]["flow"]["score"], int(x["eligible"])) for x in rows])
+                       x["pillars"]["flow"]["score"], int(x["eligible"]), x["setup"]) for x in rows])
     conn.commit()
     return rows
 
@@ -455,17 +459,27 @@ def positions_of(rows: list[dict], eligible_only: bool = False, setups=None) -> 
     return {x["sym"]: i for i, x in enumerate(order(rows, eligible_only, setups), 1)}
 
 
+def _snap_filter(eligible_only: bool, setups) -> tuple[str, list]:
+    """Điều kiện WHERE cho bảng snapshot: chỉ mã có điểm mua / chỉ các loại điểm vào / nhóm được xếp mặc định."""
+    q, args = (" AND eligible=1" if eligible_only else ""), []
+    if setups:
+        q += f" AND setup IN ({','.join('?' * len(setups))})"; args = sorted(setups)
+    else:
+        q += " AND pool=1"
+    return q, args
+
+
 def positions(conn, d: str, min_liq: float = MIN_LIQ_BIL, eligible_only: bool = False, rows=None,
-              formula: str = "new") -> dict:
+              formula: str = "new", setups=None) -> dict:
     """{mã: hạng} phiên d: từ snapshot của công thức nếu có (và min_liq = MIN_LIQ_BIL), không thì chấm lại (hoặc dùng
     rows đã chấm)."""
     if rows is None and min_liq == MIN_LIQ_BIL:
-        q = f"SELECT sym FROM {TABLES[formula]} WHERE date=?" + (" AND eligible=1" if eligible_only else "") + \
-            " ORDER BY total DESC, w DESC, sym"
-        got = [x[0] for x in conn.execute(q, (d,))]
+        w, args = _snap_filter(eligible_only, setups)
+        got = [x[0] for x in conn.execute(f"SELECT sym FROM {TABLES[formula]} WHERE date=?{w} ORDER BY total DESC, w DESC, sym",
+                                          (d, *args))]
         if got:
             return {s: i for i, s in enumerate(got, 1)}
-    return positions_of(view(rows if rows is not None else rank(conn, d, min_liq), formula), eligible_only)
+    return positions_of(view(rows if rows is not None else rank(conn, d, min_liq), formula), eligible_only, setups)
 
 
 def changes(cur_rows: list[dict], prev_pos: dict, n: int, eligible_only: bool = False, setups=None) -> list[dict]:
@@ -492,31 +506,33 @@ def changes(cur_rows: list[dict], prev_pos: dict, n: int, eligible_only: bool = 
     return dropped
 
 
-def in_top(conn, d: str, n: int = 10, last: int = 20, formula: str = "new", eligible_only: bool = False) -> tuple[dict, int]:
+def in_top(conn, d: str, n: int = 10, last: int = 20, formula: str = "new", eligible_only: bool = False,
+           setups=None) -> tuple[dict, int]:
     """({mã: số phiên nằm trong top n}, số phiên đã xét): tối đa `last` snapshot ≤ d của công thức."""
     t = TABLES[formula]
     ds = [x[0] for x in conn.execute(f"SELECT DISTINCT date FROM {t} WHERE date<=? ORDER BY date DESC LIMIT ?",
                                      (d, last))]
     cnt: dict = {}
     for day in ds:
-        q = f"SELECT sym FROM {t} WHERE date=?" + (" AND eligible=1" if eligible_only else "") + \
-            " ORDER BY total DESC, w DESC, sym LIMIT ?"
-        for (s,) in conn.execute(q, (day, n)):
+        w, args = _snap_filter(eligible_only, setups)
+        for (s,) in conn.execute(f"SELECT sym FROM {t} WHERE date=?{w} ORDER BY total DESC, w DESC, sym LIMIT ?",
+                                 (day, *args, n)):
             cnt[s] = cnt.get(s, 0) + 1
     return cnt, len(ds)
 
 
 def daily_top(conn, d: str, light: str | None, n: int = 10) -> dict:
-    """Sau lần quét: lưu snapshot phiên d (cả hai công thức), trả top n công thức mới (cờ new so với phiên trước) + mã rời
-    top; `old` = như vậy cho công thức cũ (chỉ mã có điểm mua); `both` = mã có trong cả hai top n."""
+    """Sau lần quét: lưu snapshot phiên d (cả hai công thức), trả top n công thức mới trong 4 điểm vào đẹp (cờ new so với
+    phiên trước) + mã rời top; `old` = như vậy cho công thức cũ (chỉ mã có điểm mua); `both` = mã có trong cả hai top n."""
     rows = save_daily(conn, d, light)
     prev = compare_date(conn, d, "prev")
-    prev_pos = positions(conn, prev) if prev else {}
-    dropped = changes(rows, prev_pos, n)
+    su = DEFAULT_SETUPS["new"]
+    prev_pos = positions(conn, prev, setups=su) if prev else {}
+    dropped = changes(rows, prev_pos, n, setups=su)
     old = view(rows, "old")
     old_prev = positions(conn, prev, eligible_only=True, formula="old") if prev else {}
     old_dropped = changes(old, old_prev, n, eligible_only=True)
-    top_new, top_old = order(rows)[:n], order(old, True)[:n]
+    top_new, top_old = order(rows, False, su)[:n], order(old, True)[:n]
     olds = {x["sym"] for x in top_old}
     return dict(date=d, light=light, prev=prev, rows=top_new, dropped=dropped,
                 old=dict(rows=top_old, dropped=old_dropped), both=[x["sym"] for x in top_new if x["sym"] in olds])

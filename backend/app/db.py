@@ -132,6 +132,12 @@ def _migrate(conn):
     if conn.execute("SELECT 1 FROM watchlist WHERE note='đang giữ' LIMIT 1").fetchone():   # chỉ ghi khi còn cần dọn
         conn.execute("UPDATE watchlist SET note=NULL WHERE note='đang giữ'")
         conn.commit()
+    for t in ("rank_daily", "rank_daily_ref"):           # Top tiềm năng: loại điểm vào + thuộc nhóm được xếp mặc định
+        rc = {r[1] for r in conn.execute(f"PRAGMA table_info({t})")}
+        if rc and "setup" not in rc:
+            conn.execute(f"ALTER TABLE {t} ADD COLUMN setup TEXT")
+            conn.execute(f"ALTER TABLE {t} ADD COLUMN pool INTEGER DEFAULT 1")
+            conn.commit()
     if "replay" not in {r[1] for r in conn.execute("PRAGMA table_info(signals)")}:
         # tín hiệu có trước cột này không biết là báo thật hay tạo lại: coi là tạo lại để không làm đẹp kết quả
         conn.execute("ALTER TABLE signals ADD COLUMN replay INTEGER DEFAULT 0")

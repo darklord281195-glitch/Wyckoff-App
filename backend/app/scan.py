@@ -218,7 +218,7 @@ def format_top(top: dict, light: str | None = None) -> list[str]:
     rows = top.get("rows") or []
     if not rows:
         return []
-    out = [f"\n🏆 Top {len(rows)} tiềm năng (điểm %: cung cạn · biến động thấp · sẵn sàng)"
+    out = [f"\n🏆 Top {len(rows)} tiềm năng · 4 điểm vào đẹp (điểm %: cung cạn · biến động thấp · sẵn sàng)"
            + (" (đèn đỏ: chỉ để theo dõi)" if light == "red" else "") + ":",
            "  " + " · ".join(f"{x['sym']} {x['total']}" + (" 🆕" if x.get("new") else "") for x in rows)]
     if top.get("dropped"):

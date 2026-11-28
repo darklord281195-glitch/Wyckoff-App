@@ -138,7 +138,7 @@ export default function TopPage() {
   const [liqIn, setLiqIn] = useState("10");
   const [onlyBuy, setOnlyBuy] = useState(false);
   const [formula, setFormula] = useState<Formula>("new");
-  const [setup, setSetup] = useState("");                        // "" = mọi mã; "spring,near,..." = chỉ các điểm vào này
+  const [setup, setSetup] = useState(ALL4);                      // "" = mọi mã; "spring,near,..." = chỉ các điểm vào này
   const [open, setOpen] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -146,8 +146,9 @@ export default function TopPage() {
     setSel(new URLSearchParams(window.location.search).get("date") ?? "");
     try {
       const v = Number(localStorage.getItem(N_KEY)); if ([10, 20, 30].includes(v)) setN(v);
-      if (localStorage.getItem(F_KEY) === "old") { setFormula("old"); setOnlyBuy(true); }
-      setSetup(localStorage.getItem(S_KEY) ?? "");
+      const f = localStorage.getItem(F_KEY) === "old" ? "old" : "new";
+      if (f === "old") { setFormula("old"); setOnlyBuy(true); }
+      setSetup(localStorage.getItem(S_KEY) ?? (f === "new" ? ALL4 : ""));   // mặc định: mới = 4 điểm vào, cũ = mọi mã
     } catch { /* chế độ riêng tư */ }
     api<string[]>("/api/scan/dates").then(setDates).catch(() => {});
   }, []);
@@ -158,15 +159,16 @@ export default function TopPage() {
   useEffect(() => {
     if (sel == null) return;
     setLoading(true);
-    const q = new URLSearchParams({ n: String(n), vs, min_liq: String(minLiq), all: String(!onlyBuy), formula, setup });
+    const q = new URLSearchParams({ n: String(n), vs, min_liq: String(minLiq), all: String(!onlyBuy), formula, setup: setup || "all" });
     if (sel) q.set("date", sel);
     api<TopResp>("/api/top?" + q).then((d) => { setData(d); setErr(null); }).catch((e) => setErr(String(e))).finally(() => setLoading(false));
   }, [sel, n, vs, minLiq, onlyBuy, formula, setup]);
 
   /** đổi công thức: mỗi công thức có bộ lọc mặc định riêng (mới: mọi mã; cũ: chỉ mã có điểm mua, như trước) */
   const pickF = (f: Formula) => {
-    setFormula(f); setOnlyBuy(f === "old"); setOpen(null);
-    try { localStorage.setItem(F_KEY, f); } catch { /* bỏ qua */ }
+    const s = f === "new" ? ALL4 : "";                             // mỗi công thức về bộ lọc mặc định của nó
+    setFormula(f); setOnlyBuy(f === "old"); setSetup(s); setOpen(null);
+    try { localStorage.setItem(F_KEY, f); localStorage.setItem(S_KEY, s); } catch { /* bỏ qua */ }
   };
   const pickS = (v: string) => { setSetup(v); setOpen(null); try { localStorage.setItem(S_KEY, v); } catch { /* bỏ qua */ } };
   const pickN = (v: number) => { setN(v); try { localStorage.setItem(N_KEY, String(v)); } catch { /* bỏ qua */ } };
@@ -237,8 +239,8 @@ export default function TopPage() {
           </div>
           <select id="setup" className="btn" value={setup} onChange={(e) => pickS(e.target.value)} style={{ width: 230 }}
             title="Chỉ xếp hạng trong các điểm vào Wyckoff: Spring / chuẩn bị Spring (ST, sát đáy SC), sát trần (chờ SOS), vừa SOS phá trần, D-LPS">
-            <option value="">Điểm vào: mọi mã</option>
-            <option value={ALL4}>⭐ Cả 4 điểm vào đẹp ({d ? Object.values(d.n_setup).reduce((a, b) => a + b, 0) : "…"})</option>
+            <option value="">Điểm vào: mọi mã{formula === "old" ? " (mặc định)" : ""}</option>
+            <option value={ALL4}>⭐ Cả 4 điểm vào đẹp{formula === "new" ? " · mặc định" : ""} ({d ? Object.values(d.n_setup).reduce((a, b) => a + b, 0) : "…"})</option>
             {Object.entries(d?.setups ?? { spring: "Spring / chuẩn bị Spring", near: "Sát trần", sos: "SOS phá trần", lps: "D-LPS" }).map(([k, v]) =>
               <option key={k} value={k}>{SETUP_ICON[k]} {v} ({d?.n_setup[k] ?? "…"})</option>)}
           </select>

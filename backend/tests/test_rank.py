@@ -207,6 +207,11 @@ def test_old_formula_in_parallel(tmp_path, monkeypatch):
     top = rank.daily_top(conn, ds[-1], None, n=3)
     assert conn.execute("SELECT count(*) FROM rank_daily_ref WHERE date=?", (ds[-1],)).fetchone()[0] == len(rows)
     assert all(x["eligible"] for x in top["old"]["rows"]) and len(top["old"]["rows"]) <= 3
+    assert all(x["setup"] for x in top["rows"])
+    snap = {s: (su, pool) for s, su, pool in conn.execute("SELECT sym, setup, pool FROM rank_daily WHERE date=?", (ds[-1],))}
+    assert all((x["setup"], int(not x["excluded"])) == snap[x["sym"]] for x in rows if x["total"] is not None)
+    assert rank.positions(conn, ds[-1], 0, setups=set(rank.SETUPS)) == \
+        rank.positions_of(rank.rank(conn, ds[-1], 0), setups=set(rank.SETUPS))
     assert set(top["both"]) <= {x["sym"] for x in top["rows"]} & {x["sym"] for x in top["old"]["rows"]}
     pos = rank.positions(conn, ds[-1], 0, True, formula="old")
     assert pos == rank.positions_of(rank.view(rank.rank(conn, ds[-1], 0), "old"), True)
@@ -267,14 +272,16 @@ def test_api_top(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "conn", conn)
     monkeypatch.setattr(api, "_TOP_CACHE", {})
     c = TestClient(api.app)
-    j = c.get(f"/api/top?date={ds[-1]}&min_liq=0&all=true&vs=prev").json()
+    j = c.get(f"/api/top?date={ds[-1]}&min_liq=0&all=true&vs=prev&setup=all").json()
     assert j["date"] == ds[-1] and j["compare"] == dict(vs="prev", date=ds[-2])
     assert j["n_liquid"] == len(SYMS)
     assert all({"prev_pos", "new", "in_top", "in_top_of", "pillars", "factors", "total"} <= set(x) for x in j["rows"])
     assert len(j["rows"]) == j["n_pool"] and all(not x["excluded"] for x in j["rows"])
     assert [f["key"] for f in j["factors"]] == ["dry", "vol", "ready"]
     assert c.get("/api/top?date=2026-11-14").status_code == 404
-    j2 = c.get(f"/api/top?min_liq=0&n=1&all=false").json()
+    j2 = c.get(f"/api/top?min_liq=0&n=1&all=false&setup=all").json()
+    jd = c.get(f"/api/top?date={ds[-1]}&min_liq=0").json()                       # mặc định công thức mới: 4 điểm vào
+    assert jd["setup"] == sorted(rank.SETUPS) and all(x["setup"] for x in jd["rows"])
     assert len(j2["rows"]) <= 1 and all(x["eligible"] for x in j2["rows"])
 
 

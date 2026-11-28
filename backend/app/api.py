@@ -227,13 +227,15 @@ def _validation(table: str = "rank_bt"):
 @app.get("/api/top")
 def top(date: str | None = None, min_liq: float = Query(MIN_LIQ_BIL, ge=0), n: int = Query(10, ge=1, le=50),
         all: bool | None = None, vs: str = Query("prev", pattern="^(prev|week)$"),
-        formula: str = Query("new", pattern="^(new|old)$"), setup: str = ""):
+        formula: str = Query("new", pattern="^(new|old)$"), setup: str | None = None):
     """Top n tiềm năng phiên `date` (mặc định mới nhất). formula='new': điểm = TB phần trăm cung cạn · biến động thấp ·
     điểm sẵn sàng trong nhóm được xếp (bỏ B/C, SOS hỏng, dưới hỗ trợ); 'old': công thức cũ 3 mục (chạy song song để so).
     all=false: chỉ mã có điểm mua (mặc định: new = mọi mã, old = chỉ mã có điểm mua). vs: so thứ hạng với phiên trước
     (prev) hoặc 1 tuần trước (week). both = mã nằm trong top n của cả hai công thức (mỗi công thức theo mặc định).
-    setup: lọc điểm vào đẹp, danh sách khóa cách nhau dấu phẩy trong rank.SETUPS (spring, near, sos, lps); rỗng = mọi mã."""
-    setups = {s for s in setup.split(",") if s in rank_mod.SETUPS} or None
+    setup: lọc điểm vào đẹp, danh sách khóa cách nhau dấu phẩy trong rank.SETUPS (spring, near, sos, lps); 'all' = mọi
+    mã; bỏ trống = mặc định của công thức (mới: cả 4 điểm vào; cũ: mọi mã có điểm mua)."""
+    setups = (set(rank_mod.DEFAULT_SETUPS[formula] or ()) if setup is None
+              else {s for s in setup.split(",") if s in rank_mod.SETUPS}) or None
     d = _session(date)
     if not d:
         raise HTTPException(404, "Chưa có kết quả quét")
@@ -245,15 +247,13 @@ def top(date: str | None = None, min_liq: float = Query(MIN_LIQ_BIL, ge=0), n: i
     cmp = rank_mod.compare_date(conn, d, vs)
     prev_pos = {}
     if cmp:
-        if setups:                                  # snapshot không lưu loại điểm vào: chấm lại phiên so sánh (có cache)
-            prev_pos = rank_mod.positions_of(rank_mod.view(_top_rows(cmp, min_liq, market(cmp)["light"]), formula),
-                                             only, setups)
-        else:
-            snap = min_liq == MIN_LIQ_BIL and conn.execute("SELECT 1 FROM rank_daily WHERE date=? LIMIT 1", (cmp,)).fetchone()
-            prev_pos = rank_mod.positions(conn, cmp, min_liq, only,
-                                          rows=None if snap else _top_rows(cmp, min_liq, market(cmp)["light"]), formula=formula)
+        snap = min_liq == MIN_LIQ_BIL and conn.execute(
+            f"SELECT 1 FROM {rank_mod.TABLES[formula]} WHERE date=? AND setup IS NOT NULL LIMIT 1", (cmp,)).fetchone()
+        prev_pos = rank_mod.positions(conn, cmp, min_liq, only,
+                                      rows=None if snap else _top_rows(cmp, min_liq, market(cmp)["light"]),
+                                      formula=formula, setups=setups)
     dropped = rank_mod.changes(rows, prev_pos, n, only, setups)
-    cnt, days = rank_mod.in_top(conn, d, n, formula=formula, eligible_only=only) if not setups else ({}, 0)
+    cnt, days = rank_mod.in_top(conn, d, n, formula=formula, eligible_only=only, setups=setups)
     out = [dict(x, in_top=cnt.get(x["sym"], 0), in_top_of=days) for x in rank_mod.order(rows, only, setups)[:n]]
     others = {x["sym"] for x in other}
     return dict(date=d, light=mk["light"], light_text=mk.get("text"), min_liq=min_liq,
