@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import {
-  createChart, ColorType, CrosshairMode, LineStyle, IChartApi, SeriesMarker, Time,
+  createChart, ColorType, CrosshairMode, LineStyle, IChartApi, ISeriesApi, SeriesMarker, Time,
 } from "lightweight-charts";
 import { api, num, pct, fullDate, price as fmtPrice, type Analysis, type Ohlcv, type Plan, type PlanStats } from "@/lib/api";
 
@@ -140,6 +140,20 @@ function futureDays(d: string, k: number, tf: Tf) {
   }
   return out;
 }
+// Kênh song song do người dùng vẽ: đường chính qua 2 điểm a–b, đường song song lệch dp; lưu theo mã + khung
+const CH_KEY = "wyckoff.channels";                          // localStorage
+type ChPt = { d: string; x: number; p: number };            // nến d (+ x nến sau nến cuối nếu bấm vào vùng tương lai), giá p
+type Channel = { a: ChPt; b: ChPt; dp: number };
+const CH_EXT: Record<Tf, number> = { H: 30, D: 30, "3D": 15, W: 12 };   // số nến kéo dài kênh về phía trước
+const CH_COLOR = "#0ea5e9";
+/** chỉ số nến bắt đầu và giá đường chính tại nến i (null nếu điểm không còn trên khung) */
+function chGeom(c: Channel, idx: (q: ChPt) => number | null) {
+  const ia = idx(c.a), ib = idx(c.b);
+  if (ia == null || ib == null || ia === ib) return null;
+  const k = (c.b.p - c.a.p) / (ib - ia);
+  return { i0: Math.min(ia, ib), k, at: (i: number) => c.a.p + k * (i - ia) };
+}
+
 const IND_KEY = "wyckoff.indicators";                      // localStorage: bật/tắt RSI/MACD
 const MCDX_KEY = "wyckoff.mcdx";                           // localStorage: bật/tắt MCDX
 
@@ -262,6 +276,90 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
   };
   const sc = useMemo(() => (tf === "D" && unit === "k" && analysis ? scenario(analysis.plan, analysis.c) : null), [tf, unit, analysis]);
 
+  // ---- kênh song song
+  const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const [chartVer, setChartVer] = useState(0);              // tăng mỗi lần biểu đồ được tạo lại -> vẽ lại kênh
+  const chKey = `${CH_KEY}.${sym ?? "_"}.${tf}`;
+  const [channels, setChannels] = useState<Channel[]>([]);
+  useEffect(() => {
+    try { setChannels(JSON.parse(localStorage.getItem(chKey) || "[]")); } catch { setChannels([]); }
+  }, [chKey]);
+  const saveCh = (xs: Channel[]) => {
+    setChannels(xs);
+    try { localStorage.setItem(chKey, JSON.stringify(xs)); } catch { /* không có storage */ }
+  };
+  type Q = { i: number; p: number };
+  const [drawing, setDrawing] = useState<{ pts: Q[]; m: Q | null } | null>(null);
+  useEffect(() => {
+    if (!drawing) return;
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setDrawing(null); };
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [drawing]);
+  useEffect(() => setDrawing(null), [tf, sym]);
+  const idxOf = (q: ChPt) => { const j = view[tf].rows.findIndex((r) => r.d === q.d); return j < 0 ? null : j + q.x; };
+  const toPt = (q: Q): ChPt => {
+    const rows = view[tf].rows, j = Math.min(rows.length - 1, q.i);
+    return { d: rows[j].d, x: q.i - j, p: q.p };
+  };
+  /** vị trí chuột -> (chỉ số nến, giá) */
+  const pick = (e: PointerEvent): Q | null => {
+    const r = e.currentTarget.getBoundingClientRect();
+    const lg = chartRef.current?.timeScale().coordinateToLogical(e.clientX - r.left);
+    const p = candleRef.current?.coordinateToPrice(e.clientY - r.top);
+    return lg == null || p == null ? null : { i: Math.max(0, Math.round(lg)), p };
+  };
+  const clickDraw = (q: Q) => {
+    if (!drawing) return;
+    const pts = [...drawing.pts, q];
+    if (pts.length === 2 && pts[1].i === pts[0].i) return;          // 2 điểm cùng nến: chưa ra đường
+    if (pts.length < 3) return setDrawing({ pts, m: q });
+    const [a, b] = pts;
+    const base = a.p + (b.p - a.p) / (b.i - a.i) * (q.i - a.i);
+    saveCh([...channels, { a: toPt(a), b: toPt(b), dp: q.p - base }]);
+    setDrawing(null);
+  };
+  useEffect(() => {
+    const chart = chartRef.current, rows = view[tf].rows, n = rows.length;
+    if (!chart || !n || !channels.length) return;
+    const ext = CH_EXT[tf], fut = futureDays(rows[n - 1].d, ext, tf), end = n - 1 + ext;
+    const time = (i: number) => T(i < n ? rows[i].d : fut[i - n]);
+    const made: ISeriesApi<"Line">[] = [];
+    channels.forEach((c) => {
+      const g = chGeom(c, idxOf);
+      if (!g || g.i0 >= end) return;
+      ([[0, 2, LineStyle.Solid], [c.dp, 2, LineStyle.Solid], [c.dp / 2, 1, LineStyle.Dashed]] as const).forEach(([off, w, style]) => {
+        const s = chart.addLineSeries({ color: CH_COLOR, lineWidth: w, lineStyle: style, priceLineVisible: false,
+          lastValueVisible: false, crosshairMarkerVisible: false, autoscaleInfoProvider: () => null });
+        s.setData([{ time: time(g.i0), value: g.at(g.i0) + off }, { time: time(end), value: g.at(end) + off }]);
+        made.push(s);
+      });
+    });
+    return () => { if (chartRef.current === chart) made.forEach((s) => { try { chart.removeSeries(s); } catch { /* đã gỡ */ } }); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chartVer, channels]);
+  /** nét xem trước khi đang vẽ (px trong khung) */
+  const preview = () => {
+    const ts = chartRef.current?.timeScale(), cs = candleRef.current;
+    if (!drawing || !ts || !cs) return null;
+    const P = (q: Q) => ({ x: ts.logicalToCoordinate(q.i as never) ?? 0, y: cs.priceToCoordinate(q.p) ?? 0 });
+    const seg = (a: Q, b: Q, key: string, dash = false) => {
+      const A = P(a), B = P(b);
+      return <line key={key} x1={A.x} y1={A.y} x2={B.x} y2={B.y} stroke={CH_COLOR} strokeWidth={2} strokeDasharray={dash ? "5 4" : undefined} />;
+    };
+    const [a, b] = drawing.pts, m = drawing.m, out = [];
+    if (a && !b && m && m.i !== a.i) out.push(seg(a, m, "ab", true));
+    if (a && b) {
+      out.push(seg(a, b, "ab"));
+      if (m) {
+        const dp = m.p - (a.p + (b.p - a.p) / (b.i - a.i) * (m.i - a.i));
+        out.push(seg({ i: a.i, p: a.p + dp }, { i: b.i, p: b.p + dp }, "cd", true));
+      }
+    }
+    drawing.pts.forEach((q, j) => { const A = P(q); out.push(<circle key={"p" + j} cx={A.x} cy={A.y} r={4} fill={CH_COLOR} />); });
+    return out;
+  };
+
   useEffect(() => {
     const { rows, k } = view[tf];                     // k: khóa thời gian của mốc sự kiện trên khung đang xem
     if (!box.current || rows.length === 0) return;
@@ -323,6 +421,7 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
       upColor: up, downColor: down, borderUpColor: up, borderDownColor: down, wickUpColor: up, wickDownColor: down,
     });
     candles.setData(rows.map((r) => ({ time: T(r.d), open: r.o, high: r.h, low: r.l, close: r.c })));
+    candleRef.current = candles;
 
     const vol = chart.addHistogramSeries({
       priceScaleId: "vol", lastValueVisible: false, priceLineVisible: false,
@@ -518,7 +617,8 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
       if (r0) ts.setVisibleLogicalRange(r0);
       chart.timeScale().subscribeVisibleLogicalRangeChange((r) => { if (r) ts.setVisibleLogicalRange(r); });
     }
-    return () => { sub?.remove(); sub2?.remove(); chart.remove(); chartRef.current = null; setTip(null); setVtip(null); };
+    setChartVer((v) => v + 1);
+    return () => { sub?.remove(); sub2?.remove(); chart.remove(); chartRef.current = null; candleRef.current = null; setTip(null); setVtip(null); };
   }, [view, tf, analysis, unit, sel?.from, sel?.to, sc, showSc, showInd, showIchi, showMcdx]);
 
   // chế độ chọn khoảng: tắt kéo/zoom của biểu đồ để chuột dùng cho việc chọn
@@ -554,7 +654,7 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
         </div>
         {tf === "H" && !hourly && <span className="muted" style={{ fontSize: 12.5 }}>
           {hErr ? `Không tải được nến 1 giờ: ${hErr}` : "Đang tải nến 1 giờ…"}</span>}
-        {onRange && <button className={`btn${picking ? " primary" : ""}`} onClick={() => { setPicking(!picking); setDrag(null); }}
+        {onRange && <button className={`btn${picking ? " primary" : ""}`} onClick={() => { setPicking(!picking); setDrag(null); setDrawing(null); }}
           title="Kéo chuột qua một đoạn để phân tích Wyckoff trong đoạn đó">
           {picking ? "Kéo chuột chọn khoảng… (bấm để hủy)" : "↔ Chọn khoảng phân tích"}</button>}
         {sc && <button className={`btn${showSc ? " primary" : ""}`} onClick={toggleSc}
@@ -569,6 +669,9 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
         <button className={`btn${showMcdx ? " primary" : ""}`} onClick={toggleMcdx}
           title="MCDX Plus: đỏ = banker (RSI 50), vàng = hot money (RSI 40), xanh = nhỏ lẻ; đường = TB 10 phiên của banker">
           {showMcdx ? "✓ MCDX" : "MCDX"}</button>
+        <button className={`btn${drawing ? " primary" : ""}`} onClick={() => { setDrawing(drawing ? null : { pts: [], m: null }); setPicking(false); }}
+          title="Bấm 2 điểm để vẽ đường chính (ví dụ 2 đáy), bấm điểm thứ 3 để đặt đường song song (ví dụ 1 đỉnh). Kênh lưu theo mã và khung thời gian, kéo dài về phía trước.">
+          {drawing ? `Bấm điểm ${drawing.pts.length + 1}/3… (Esc để hủy)` : "⫽ Kênh song song"}</button>
         {tf !== "D" && <span className="muted" style={{ fontSize: 12.5 }}>
           Mốc Wyckoff tính theo ngày, gắn vào {tf === "H" ? "nến 9h của ngày đó (nến 1 giờ chỉ có ~1 năm gần nhất)"
             : `nến ${TF_LABEL[tf].toLowerCase()} chứa ngày đó`} · kéo/cuộn để xem thêm</span>}
@@ -607,7 +710,37 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
             }} />}
           </div>
         )}
+        {drawing && (   // lớp phủ nhận 3 cú bấm khi vẽ kênh
+          <div style={{ position: "absolute", inset: 0, zIndex: 10, cursor: "crosshair", touchAction: "none" }}
+            onPointerMove={(e) => { const q = pick(e); if (q) setDrawing({ ...drawing, m: q }); }}
+            onPointerDown={(e) => { const q = pick(e); if (q) clickDraw(q); }}>
+            <svg width="100%" height="100%" style={{ position: "absolute", inset: 0 }}>{preview()}</svg>
+          </div>
+        )}
       </div>
+      {channels.length > 0 && (() => {
+        const rows = view[tf].rows, n = rows.length;
+        if (!n) return null;
+        const c0 = rows[n - 1].c;
+        return <div className="row" style={{ gap: 6, marginTop: 6, fontSize: 12.5 }}>
+          {channels.map((c, j) => {
+            const g = chGeom(c, idxOf);
+            if (!g) return null;
+            const v1 = g.at(n - 1), v2 = v1 + c.dp, lo = Math.min(v1, v2), hi = Math.max(v1, v2);
+            const pos = hi > lo ? (c0 - lo) / (hi - lo) * 100 : 50;
+            const slope = v1 ? g.k / v1 * 20 * 100 : 0;
+            return <span key={j} className="pill" style={{ background: "transparent", border: `1px solid ${CH_COLOR}` }}>
+              <b style={{ color: CH_COLOR }}>Kênh {j + 1}</b> · dưới {fmtPrice(lo, unit)} · trên {fmtPrice(hi, unit)} ·{" "}
+              {pos > 100 ? <b className="up">giá đã vượt cạnh trên</b> : pos < 0 ? <b className="down">giá đã thủng cạnh dưới</b>
+                : <>giá ở <b>{num(pos, 0)}%</b> kênh</>}
+              {" "}· dốc {pct(slope, 1)}/20 nến{" "}
+              <button onClick={() => saveCh(channels.filter((_, x) => x !== j))} aria-label={`Xóa kênh ${j + 1}`} title="Xóa kênh"
+                style={{ border: 0, background: "none", cursor: "pointer", color: "var(--muted)", padding: "0 2px" }}>✕</button>
+            </span>;
+          })}
+          {channels.length > 1 && <button className="btn" style={{ fontSize: 12 }} onClick={() => saveCh([])}>Xóa hết kênh</button>}
+        </div>;
+      })()}
       {showInd && <div ref={box2} style={{ width: "100%", height: 220, marginTop: 4 }} />}
       {showMcdx && <McdxPanel box={box3} closes={view[tf].rows.map((r) => r.c)} />}
       {sc && showSc && <p className="muted" style={{ margin: "6px 0 0", fontSize: 12.5 }}>
