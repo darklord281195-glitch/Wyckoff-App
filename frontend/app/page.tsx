@@ -143,6 +143,7 @@ export default function Home() {
 
   return (
     <>
+      <span className="wide-page" hidden />
       <section className="card hero">
         <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
           <div className="row" style={{ gap: 10 }}>
@@ -242,7 +243,7 @@ export default function Home() {
           </div>
         </div>
         <div className="tbl">
-          <table className="right">
+          <table className="right compact">
             <thead>
               <tr>
                 {th("sym", "Mã")}{th("banker", "Banker", true)}{th("sector", "Ngành")}{th("stage", "Pha")}{plain("Giá", true)}{th("chg", "%", true)}{th("ready", "Điểm", true)}
@@ -259,10 +260,10 @@ export default function Home() {
                     style={{ color: r.banker == null ? "var(--muted)" : r.banker >= 50 ? "#dc2626" : undefined, fontWeight: (r.banker ?? 0) >= 50 ? 700 : 400 }}>
                     {r.banker == null ? "–" : num(r.banker, 0) + "%"}
                     {r.banker_chg5 ? <span className={r.banker_chg5 > 0 ? "up" : "down"} style={{ fontSize: 11 }}> {r.banker_chg5 > 0 ? "▲" : "▼"}</span> : null}
-                    {r.banker_label && <div style={{ fontFamily: "var(--font)", fontSize: 11, fontWeight: 500,
+                    {r.banker_label && <div style={{ fontFamily: "var(--font)", fontSize: 11, fontWeight: 500, whiteSpace: "normal", minWidth: 92, maxWidth: 104, marginLeft: "auto", lineHeight: 1.25,
                       color: r.banker_tone === "good" ? "var(--up)" : r.banker_tone === "bad" ? "var(--down)" : r.banker_tone === "warn" ? "var(--warn)" : "var(--muted)" }}>
                       {r.banker_label}</div>}</td>
-                  <td style={{ maxWidth: 170, overflow: "hidden", textOverflow: "ellipsis", fontSize: 13 }} title={secOf(r)}>
+                  <td style={{ maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", fontSize: 13 }} title={secOf(r)}>
                     {secOf(r)
                       ? <button onClick={() => setGroup(r.groups.find((g) => g.startsWith("icb:"))!)} title={`${secOf(r)} · bấm để lọc ngành này`}
                           style={{ border: 0, background: "none", padding: 0, cursor: "pointer", color: "var(--muted)", font: "inherit", maxWidth: "100%",
@@ -290,7 +291,7 @@ export default function Home() {
                   <td className="n">{num(r.liq)}</td>
                   <td className={`n ${r.fx10 == null ? "muted" : r.fx10 >= 0 ? "up" : "down"}`}>
                     {r.fx10 == null ? "–" : (r.fx10 > 0 ? "+" : "") + num(r.fx10, 1)}</td>
-                  <td className="muted" style={{ whiteSpace: "normal", minWidth: 220, fontSize: 13 }}>{r.extra}</td>
+                  <td className="muted" style={{ whiteSpace: "normal", minWidth: 120, fontSize: 12.5 }}>{r.extra}</td>
                 </tr>
               ))}
             </tbody>

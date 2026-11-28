@@ -93,7 +93,7 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
 
 /* ---- bảng ---- */
 .tbl { overflow-x: auto; border-radius: 8px; }
-.wrap:has(> .wide-page) { max-width: none; padding-left: 24px; padding-right: 24px; }   /* trang Top 10: bảng nhiều cột, dùng hết bề ngang */
+.wrap:has(> .wide-page) { max-width: none; padding-left: 16px; padding-right: 16px; }   /* trang Top 10: bảng nhiều cột, dùng hết bề ngang */
 @media (max-width: 640px) { .wrap:has(> .wide-page) { padding-left: 16px; padding-right: 16px; } }
 .card:fullscreen { overflow: auto; border-radius: 0; border: 0; padding: 16px 24px; }   /* bảng phóng to toàn màn hình */
 .card:fullscreen .tbl { max-height: calc(100vh - 110px); overflow: auto; }
