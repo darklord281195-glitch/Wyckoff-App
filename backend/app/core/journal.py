@@ -8,7 +8,7 @@ import json
 from .positions import simulate
 from .plan import TIME_STOP
 
-BUY_FEE, SELL_FEE = 0.0015, 0.0025       # cùng mức với backtest (mua 0,15%; bán 0,15% + thuế 0,1%)
+from .costs import BUY_FEE, SELL_FEE     # cùng mức với backtest (mua 0,15%; bán 0,15% + thuế 0,1%)
 LATE = 2                                  # bán sau mốc luật quá số phiên này = cắt lỗ trễ
 STOP_KINDS = ("Cắt lỗ", "Thủng cắt lỗ dời", "Hết thời gian")
 

@@ -109,9 +109,12 @@ export type SymbolData = {
   scenario_stats?: { light: string | null; rows: ScenarioStat[] };
   fundamentals: Fundamentals | null;
 };
-/** up/flat/down: % số phiên mà trong `horizon` phiên sau đó giá chạm T1 trước / không chạm gì / đóng cửa dưới cắt lỗ trước */
+/** Tỷ lệ trên các lệnh backtest đã khớp vùng vào và đã đóng: up = chạm T1, down = cắt lỗ khi chưa tới T1,
+ *  flat = hết `horizon` phiên chưa tới T1 (%); *_days = số phiên TB từ lúc khớp; avg_r/ci_*: R TB sau phí + trượt giá, KTC95%.
+ *  avg_r null: bản backtest cũ (đếm theo phiên), cần chạy lại app.backtest. */
 export type ScenarioStat = { plan: string; light: string; n: number; up: number; flat: number; down: number;
-  up_days: number; down_days: number; horizon: number; period: string; updated: string };
+  up_days: number | null; down_days: number | null; horizon: number; period: string; updated: string;
+  avg_r: number | null; ci_lo: number | null; ci_hi: number | null };
 
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(`${API}${path}`, { cache: "no-store", ...init });

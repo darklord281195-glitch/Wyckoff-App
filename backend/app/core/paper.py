@@ -11,8 +11,8 @@ import json
 
 from .data import get_ohlcv
 from .positions import simulate
+from .costs import SLIP_FIXED, net_r
 
-BUY_FEE, SELL_FEE, SLIP = 0.0015, 0.0025, 0.0025    # cùng mức với backtest
 # nhóm để so sánh: (tên, hàm lấy nhóm từ một lệnh)
 GROUPS = (
     ("Loại kế hoạch", lambda x: x["kind"] or "–"),
@@ -24,14 +24,15 @@ GROUPS = (
 
 
 def record(conn, rows: list[dict]) -> int:
-    """rows: dict(d, at, sym, kind, entry_px, stop, targets=[...], light, rr, vx, close_pos, why, plan). Trùng (ngày, mã) bỏ qua."""
+    """rows: dict(d, at, sym, kind, entry_px, stop, targets=[...], light, rr, vx, close_pos, why, plan, slip).
+    slip: trượt giá mỗi chiều lúc mua (costs.slip_for), thiếu thì dùng mức cố định cũ. Trùng (ngày, mã) bỏ qua."""
     n = 0
     for r in rows:
         n += conn.execute(
-            "INSERT OR IGNORE INTO paper_trades(d,at,sym,kind,entry_px,stop,targets,light,rr,vx,close_pos,why,plan) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            "INSERT OR IGNORE INTO paper_trades(d,at,sym,kind,entry_px,stop,targets,light,rr,vx,close_pos,why,plan,slip) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (r["d"], r["at"], r["sym"], r["kind"], r["entry_px"], r["stop"], json.dumps(r["targets"]), r["light"],
-             r["rr"], r["vx"], r["close_pos"], r["why"], json.dumps(r["plan"], ensure_ascii=False))).rowcount
+             r["rr"], r["vx"], r["close_pos"], r["why"], json.dumps(r["plan"], ensure_ascii=False), r.get("slip"))).rowcount
     conn.commit()
     return n
 
@@ -47,11 +48,9 @@ def evaluate(t: dict, bars: list[dict]) -> dict:
     if not bars or bars[0]["d"] != t["d"]:
         return dict(status="chờ dữ liệu", R=None, exit_d=None, exit_why=None, days=0, events=[])
     s = simulate(t["entry_px"], t["stop"], t["targets"], bars)
-    last = bars[-1]["c"]
-    value = (sum(e["frac"] * e["px"] for e in s["exits"]) + s["left"] * last) * (1 - SELL_FEE - SLIP)
-    cost = t["entry_px"] * (1 + BUY_FEE + SLIP)
+    gross = sum(e["frac"] * e["px"] for e in s["exits"]) + s["left"] * bars[-1]["c"]
     return dict(status="đang giữ" if s["open"] else "đã đóng",
-                R=round((value - cost) / max(t["entry_px"] - t["stop"], t["entry_px"] * 1e-3), 2),
+                R=net_r(t["entry_px"], t["stop"], gross, t.get("slip") or SLIP_FIXED)[0],
                 exit_d=None if s["open"] else s["exits"][-1]["d"], exit_why=None if s["open"] else s["exits"][-1]["why"],
                 hit_t1=s["hit"] > 0, days=len(bars) - 1, cur_stop=s["stop"], events=s["events"])
 

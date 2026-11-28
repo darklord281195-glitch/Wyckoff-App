@@ -165,6 +165,7 @@ Link trang có `?from=…&at=…` nên tải lại hay chia sẻ vẫn đúng kh
 - Chỉ vẽ khi kế hoạch có vùng vào, cắt lỗ và mục tiêu cao hơn điểm vào (không vẽ cho "Không vào", "Đang tăng (Pha E)").
 - Đây là minh họa kế hoạch, không phải dự báo. Khi xem phiên cũ, kịch bản nằm đè lên nến thực tế để so.
 - Dưới kịch bản có **tỷ lệ lịch sử** của loại kế hoạch đó (chạm T1, cắt lỗ, hết thời gian, R TB và KTC95%), lấy từ lần chạy `app.backtest` đầy đủ gần nhất (bảng `backtest_stats`). Chạy backtest lại khi đổi luật để số liệu khớp.
+- Mục Kế hoạch giao dịch có thẻ **"Lịch sử: lệnh … đã khớp đi theo kịch bản nào?"**: cùng các lệnh backtest đó, tách theo màu đèn lúc báo (ưu tiên màu đèn của phiên đang xem, nhóm dưới 30 lệnh thì dùng "mọi đèn"), kèm R TB và KTC95% từng màu (bảng `scenario_stats`). Chỉ đếm lệnh **đã khớp vùng vào và đã đóng**, nên dòng "mọi đèn" trùng số với dòng thống kê dưới biểu đồ. (Bản trước đếm mọi phiên có kế hoạch kể cả khi không khớp lệnh, mẫu chồng lên nhau, nên ra số khác hẳn backtest – đã bỏ.)
 
 **Khối ngoại** (trang mã, chỉ cổ phiếu): cột giá trị mua ròng từng phiên (tỷ đồng), chọn **10 / 30 / 50 / 70 / 90 phiên**, kèm tổng ròng, tổng mua/bán, số phiên mua/bán ròng và room còn lại. Dữ liệu từ VNDirect finfo `/foreigns` (API không chính thức), tải khi mở trang mã rồi lưu bảng `foreign_trade`; chỉ tải lại khi có phiên giá mới. Khi xem phiên cũ thì lấy 90 phiên tới ngày đó. Số liệu có thể lệch đôi chút so với nguồn khác (cách tính thỏa thuận).
 
@@ -214,7 +215,11 @@ Cách chạy:
   - các kế hoạch khác: lệnh giới hạn ở cận trên vùng
 - Lệnh bán theo đúng luật của Danh mục.
 - Phí: 0,15% mỗi chiều, bán thêm thuế 0,1%.
-- Trượt giá: 0,25% mỗi chiều (mua cao hơn, bán thấp hơn giá lý thuyết). Đổi bằng `--slip 0.5`, hoặc `--slip 0` để so với bản không trượt giá.
+- Trượt giá mỗi chiều (mua cao hơn, bán thấp hơn giá lý thuyết), mặc định **tự tính theo từng lệnh** (`core/costs.slip_for`):
+  - nửa bước giá / giá: giá khớp trong dữ liệu nằm giữa giá chào mua và chào bán, mua hay bán đều mất khoảng nửa chênh lệch (tối thiểu 1 bước). Mã giá thấp hoặc sàn HNX/UPCoM (bước 100đ) chịu nhiều hơn: ở giá 12.000 là 0,42% mỗi chiều;
+  - cộng phần thanh khoản theo GT TB20 lúc khớp: ≥ 50 tỷ +0,05%, 20–50 tỷ +0,15%, 10–20 tỷ +0,3%, dưới 10 tỷ +0,5%.
+  - `--slip 0.25` dùng mức cố định cũ, `--slip 0` để so với bản không trượt giá. Mỗi lệnh trong CSV có cột `slip` (%/chiều) và `R_fixed` (R nếu trượt giá cố định 0,25%); báo cáo in so sánh hai cách theo 2019–23 / 2024–26.
+  - Chấm điểm tín hiệu thật và sổ lệnh thử nghiệm dùng cùng cách tính (sổ thử nghiệm lưu trượt giá lúc mua; lệnh cũ chưa có thì dùng 0,25%).
 
 Kết quả tính theo **R** (lời/lỗ sau phí và trượt giá, chia rủi ro ban đầu). Báo cáo chia theo loại tín hiệu, loại kế hoạch, đèn thị trường lúc báo, điểm sẵn sàng và năm. Chi tiết từng lệnh ghi vào `logs\backtest-YYYYMMDD.csv`.
 - **KTC95% R**: khoảng tin cậy 95% của R TB. Khoảng chứa 0 nghĩa là chưa chắc nhóm đó có lợi thế.
@@ -224,7 +229,9 @@ Kết quả tính theo **R** (lời/lỗ sau phí và trượt giá, chia rủi 
 Giới hạn:
 - Chỉ có mã đang niêm yết, mã đã hủy niêm yết không có trong dữ liệu.
 - Giá đã điều chỉnh.
-- Trượt giá là một mức cố định, chưa theo thanh khoản từng mã.
+- Trượt giá theo bước giá + thanh khoản là ước lượng, chưa theo độ sâu sổ lệnh thật và khối lượng đặt.
+
+Kết quả 28/11/2026 với trượt giá tự tính (TB 0,33%/chiều): R TB theo luật ẩn 2019–23 +0,51 (cố định 0,25%: +0,57), 2024–26 −0,06 (−0,05). Một số lệnh "LPS mới" khớp sát cắt lỗ (vd rủi ro 0,04%) nên R rất âm dù lỗ tiền chỉ ~3%, làm R TB nhóm này dao động mạnh.
 
 **Chấm điểm tín hiệu thật** (trang **Kết quả**, mục "Tín hiệu đã báo"): mỗi tín hiệu mua đã báo (lần đầu, không bị ẩn theo đèn) được chấm theo đúng luật backtest: có khớp vùng vào trong 10 phiên không (chờ khớp / không khớp / đang giữ / đã đóng), rồi bán theo luật được bao nhiêu R sau phí + trượt giá. So với R TB backtest để biết hệ thống còn hoạt động như kỳ vọng không. Tín hiệu tạo lại bằng `scan --from` được đánh dấu (`signals.replay = 1`) và mặc định không tính; các tín hiệu có trước khi thêm cột này đều coi là tạo lại.
 

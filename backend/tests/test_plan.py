@@ -86,19 +86,29 @@ def test_failed_breakout_switches_to_new_lps():
     assert p["stop"] < p["entry_lo"] and p["targets"][0]["price"] >= res * 1.02 * 0.999   # T1 = đỉnh cú vượt
 
 
-def test_scenario_outcome_and_rates():
-    from app.backtest import outcome, scenario_rows
-    bar = lambda h, c: dict(h=h, c=c)
-    R = [bar(10, 10)] + [bar(10.2, 10)] * 3 + [bar(11.5, 11)] + [bar(10, 10)] * 30
-    assert outcome(R, 0, 9.5, 11.0) == ("up", 4)                     # chạm T1 ở phiên thứ 4
-    assert outcome([bar(10, 10), bar(10.1, 9.4)] + R, 0, 9.5, 11.0) == ("down", 1)
-    assert outcome([bar(10, 10)] * 25, 0, 9.5, 11.0) == ("flat", 20)
-    assert outcome([bar(10, 10)] * 5, 0, 9.5, 11.0) is None          # chưa đủ 20 phiên để biết
-    rows = scenario_rows([dict(plan="LPS", light="green", out=o, days=d) for o, d in
-                          (("up", 4), ("up", 6), ("down", 2), ("flat", 20))])
-    s = rows[("LPS", "green")]
-    assert (s["n"], s["up"], s["flat"], s["down"], s["up_days"]) == (4, 50.0, 25.0, 25.0, 5.0)
-    assert rows[("LPS", "*")]["n"] == 4
+def test_scenario_rows_from_filled_trades():
+    """Tỷ lệ kịch bản tính trên lệnh đã khớp + đã đóng, cùng cách chia với stats() (dòng '*' khớp backtest_stats)."""
+    from app.backtest import scenario_rows, stats
+    t = lambda hit, why, R, days, t1_days=None, light="green", open_=False: dict(
+        plan="LPS", light=light, hit=hit, why=why, R=R, ret=R, days=days, t1_days=t1_days, open=open_)
+    trades = [t(1, "T2", 2.0, 12, t1_days=4), t(1, "Thủng cắt lỗ dời", 0.3, 9, t1_days=6), t(0, "Cắt lỗ", -1.1, 2),
+              t(0, "Hết thời gian", -0.2, 20, light="red"), t(0, "đang giữ", 0.5, 3, open_=True)]   # lệnh đang giữ: bỏ
+    rows = scenario_rows(trades)
+    g = rows[("LPS", "green")]
+    assert (g["n"], g["up"], g["flat"], g["down"], g["up_days"], g["down_days"]) == (3, 66.7, 0.0, 33.3, 5.0, 2.0)
+    a = rows[("LPS", "*")]
+    assert a["n"] == 4 and a["up"] + a["flat"] + a["down"] == 100.0
+    s = stats([x for x in trades if not x["open"]])
+    assert (a["up"], a["down"], a["flat"], a["avg_r"]) == (s["hit_t1"], s["stop"], s["timeout"], s["avg_r"])
+    assert rows[("LPS", "red")]["flat"] == 100.0
+
+
+def test_slip_for_tick_and_liquidity():
+    from app.core.costs import slip_for
+    assert slip_for(23.0, 60, "HOSE") == round(0.05 / 2 / 23 + 0.0005, 5)      # nửa bước 50đ + mã rất thanh khoản
+    assert slip_for(12.0, 15, "HNX") == round(0.1 / 2 / 12 + 0.003, 5)         # bước 100đ ở giá thấp: đắt hơn nhiều
+    assert slip_for(12.0, 15, None) == slip_for(12.0, 15, "UPCOM")              # không rõ sàn: tính bước 100đ
+    assert slip_for(80.0, 5, "HOSE") > slip_for(80.0, 30, "HOSE") > slip_for(80.0, 100, "HOSE")
 
 
 def test_test_kind_spring_needs_new_low_and_reclaim():

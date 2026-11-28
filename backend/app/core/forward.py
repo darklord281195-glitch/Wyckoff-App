@@ -6,22 +6,26 @@ import json
 
 from .data import get_ohlcv
 from .positions import simulate
+from .costs import slip_for
 from . import signals as sig
 
 
 def score(conn, live_only=True, wait=None, slip=None, fees=None):
     """Danh sách tín hiệu mua lần đầu (is_new=1) kèm kết quả theo luật + tổng hợp.
-    live_only: chỉ tín hiệu báo thật lúc quét thường (replay=0), bỏ các phiên tạo lại bằng scan --from."""
+    live_only: chỉ tín hiệu báo thật lúc quét thường (replay=0), bỏ các phiên tạo lại bằng scan --from.
+    slip: None = tự tính như backtest (bước giá theo sàn + GT TB20 lúc báo, costs.slip_for)."""
     from .. import backtest as bt                       # import muộn: backtest import nhiều module app
+    from ..universe import listing
     wait = wait or bt.WAIT
-    slip = bt.SLIP if slip is None else slip
     buy_fee, sell_fee = fees or (bt.BUY_FEE, bt.SELL_FEE)
+    floors = {s: v.get("floor") for s, v in listing(conn).items()}
     q = (f"SELECT date, sym, kind, replay FROM signals WHERE is_new=1 AND kind IN ({','.join('?' * len(sig.BUY))})"
          + (" AND replay=0" if live_only else "") + " ORDER BY date, sym")
     items, cache = [], {}
     for s in conn.execute(q, sig.BUY).fetchall():
         row = conn.execute("SELECT data FROM scan_results WHERE date=? AND sym=?", (s["date"], s["sym"])).fetchone()
-        p = (json.loads(row[0]).get("plan") or {}) if row else {}
+        data = json.loads(row[0]) if row else {}
+        p = data.get("plan") or {}
         it = dict(date=s["date"], sym=s["sym"], kind=s["kind"], replay=bool(s["replay"]), plan=p.get("kind"),
                   entry_lo=p.get("entry_lo"), entry_hi=p.get("entry_hi"), stop=p.get("stop"),
                   status="không có kế hoạch", entry_d=None, entry=None, exit_d=None, why=None, R=None)
@@ -38,8 +42,9 @@ def score(conn, live_only=True, wait=None, slip=None, fees=None):
                     targets = [t["price"] for t in p.get("targets", [])]
                     r = simulate(px, p["stop"], targets, R[f:])
                     e = bisect.bisect_left(D, r["exits"][-1]["d"]) if not r["open"] else len(R) - 1
-                    value = (sum(z["frac"] * z["px"] for z in r["exits"]) + r["left"] * R[e]["c"]) * (1 - sell_fee - slip)
-                    cost = px * (1 + buy_fee + slip)
+                    sl = slip if slip is not None else slip_for(px, data.get("liq"), floors.get(s["sym"]))
+                    value = (sum(z["frac"] * z["px"] for z in r["exits"]) + r["left"] * R[e]["c"]) * (1 - sell_fee - sl)
+                    cost = px * (1 + buy_fee + sl)
                     it.update(status="đang giữ" if r["open"] else "đã đóng", entry_d=D[f], entry=round(px, 3),
                               exit_d=None if r["open"] else D[e], why=None if r["open"] else r["exits"][-1]["why"],
                               R=round((value - cost) / max(px - p["stop"], px * 1e-3), 2))

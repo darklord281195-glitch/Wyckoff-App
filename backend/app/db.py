@@ -30,9 +30,10 @@ CREATE TABLE IF NOT EXISTS backtest_stats (       -- kết quả backtest theo l
   plan TEXT PRIMARY KEY, n INTEGER, hit_t1 REAL, stop REAL, timeout REAL, avg_r REAL, ci_lo REAL, ci_hi REAL,
   avg_days REAL, period TEXT, slip REAL, updated TEXT
 );
-CREATE TABLE IF NOT EXISTS scenario_stats (       -- tỷ lệ kịch bản HORIZON phiên sau mỗi phiên có kế hoạch (app.backtest); up/flat/down là %
+CREATE TABLE IF NOT EXISTS scenario_stats (       -- tỷ lệ 3 kịch bản trên lệnh backtest đã khớp, theo loại kế hoạch × đèn (app.backtest)
   plan TEXT NOT NULL, light TEXT NOT NULL, n INTEGER, up REAL, flat REAL, down REAL, up_days REAL, down_days REAL,
-  horizon INTEGER, period TEXT, updated TEXT, PRIMARY KEY (plan, light)
+  horizon INTEGER, period TEXT, updated TEXT, avg_r REAL, ci_lo REAL, ci_hi REAL,  -- up/flat/down là %; R TB + KTC95%
+  PRIMARY KEY (plan, light)
 );
 CREATE TABLE IF NOT EXISTS settings (             -- cài đặt người dùng (JSON theo key), vd vốn và ngưỡng rủi ro
   key TEXT PRIMARY KEY, value TEXT
@@ -56,6 +57,7 @@ CREATE TABLE IF NOT EXISTS paper_trades (         -- sổ lệnh thử nghiệm:
   entry_px REAL NOT NULL, stop REAL NOT NULL, targets TEXT,   -- targets: JSON [giá T1, T2, ...]; kết quả tính bằng positions.simulate
   light TEXT, rr REAL, vx REAL, close_pos REAL,   -- đèn, lời/lỗ kế hoạch, KL đã khớp / TB20, vị trí giá trong biên độ phiên (0–1)
   why TEXT, plan TEXT,                             -- plan: JSON kế hoạch lúc mua (để phân tích lại điều kiện)
+  slip REAL,                                       -- trượt giá mỗi chiều lúc mua (tỷ lệ, costs.slip_for); NULL = mức cố định cũ
   UNIQUE (d, sym)
 );
 CREATE TABLE IF NOT EXISTS watchlist (
@@ -92,6 +94,15 @@ def _migrate(conn):
     if "text" not in ia:                   # nội dung + giờ báo, để trang chủ hiện lại các cảnh báo trong phiên
         conn.execute("ALTER TABLE intraday_alerts ADD COLUMN text TEXT")
         conn.execute("ALTER TABLE intraday_alerts ADD COLUMN at TEXT")
+        conn.commit()
+    sc = {r[1] for r in conn.execute("PRAGMA table_info(scenario_stats)")}
+    if sc and "avg_r" not in sc:           # tỷ lệ kịch bản tính trên lệnh đã khớp: thêm R TB + KTC95%
+        for c in ("avg_r", "ci_lo", "ci_hi"):
+            conn.execute(f"ALTER TABLE scenario_stats ADD COLUMN {c} REAL")
+        conn.commit()
+    pt = {r[1] for r in conn.execute("PRAGMA table_info(paper_trades)")}
+    if pt and "slip" not in pt:
+        conn.execute("ALTER TABLE paper_trades ADD COLUMN slip REAL")
         conn.commit()
     if "replay" not in {r[1] for r in conn.execute("PRAGMA table_info(signals)")}:
         # tín hiệu có trước cột này không biết là báo thật hay tạo lại: coi là tạo lại để không làm đẹp kết quả

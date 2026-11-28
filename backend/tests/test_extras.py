@@ -26,6 +26,16 @@ def test_slippage_lowers_every_trade():
     for a, b in zip(base, slipped):
         assert (a["sym"], a["entry_d"], a["exit_d"]) == (b["sym"], b["entry_d"], b["exit_d"])
         assert b["ret"] < a["ret"] and b["R"] <= a["R"]
+        assert b["R_fixed"] == b["R"] and b["slip"] == 0.25          # cố định 0,25%: R_fixed trùng R
+
+
+def test_auto_slip_uses_floor_and_liquidity():
+    IDX, R = load("VNINDEX"), load("TCH")
+    auto = backtest.run_symbol("TCH", R, IDX, floor="HOSE")              # slip=None: tự tính
+    fixed = backtest.run_symbol("TCH", R, IDX, slip=0.0025, floor="HOSE")
+    assert auto and [(t["entry_d"], t["exit_d"]) for t in auto] == [(t["entry_d"], t["exit_d"]) for t in fixed]
+    for t in auto:
+        assert 0 < t["slip"] < 1 and t["R_fixed"] == next(f["R"] for f in fixed if f["entry_d"] == t["entry_d"])
 
 
 def test_stats_confidence_interval():
