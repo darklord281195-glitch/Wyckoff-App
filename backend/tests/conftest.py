@@ -19,5 +19,6 @@ def no_network(monkeypatch):
                         real_sync(conn, syms, workers, force, fetcher or _offline))
     monkeypatch.setattr(fundamentals, "fetch_pe", _offline)
     monkeypatch.setattr(fundamentals, "fetch", _offline)
+    monkeypatch.setattr(proprietary, "fetch", _offline)
     real_prop = proprietary.get_prop
     monkeypatch.setattr(api, "get_prop", lambda conn, code, end=None, n=250: real_prop(conn, code, end, n, fetcher=_offline))

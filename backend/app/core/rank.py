@@ -15,6 +15,7 @@ from . import fundamentals as fund
 from . import mcdx as mcdx_mod
 from .foreign import net_sum
 from .indicators import rsi, macd, ichimoku
+from .proprietary import prop_net
 
 WEIGHTS = dict(wyckoff=1 / 3, tech=1 / 3, flow=1 / 3)   # 3 mục ngang nhau (người dùng chốt)
 FX_SCALE = 10       # khối ngoại: mua ròng 20 phiên = ±10% GT giao dịch 20 phiên thì đạt điểm tối đa / tối thiểu
@@ -267,7 +268,7 @@ def rank(conn, d: str, min_liq: float = MIN_LIQ_BIL, light: str | None = None) -
             continue
         fm = fund.metrics_at(fund.load(conn, sym), d)
         s = score_symbol(r, bars_until(conn, sym, d), fm, net_sum(conn, sym, d, 20), net_sum(conn, sym, d, 5),
-                         None, stats)
+                         prop_net(conn, sym, d), stats)
         p, info = r.get("plan") or {}, lst.get(sym) or {}
         t = main_target(p)
         ok = eligible(r)

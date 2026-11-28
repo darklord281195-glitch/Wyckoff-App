@@ -12,6 +12,7 @@ from . import fmt
 from .db import connect
 from .core.data import get_ohlcv, sync_many
 from .core.foreign import sync_foreign, net_sum
+from .core.proprietary import sync_prop
 from .core.wyckoff import analyse, trim
 from .core.market import traffic_light
 from .core import signals as sig
@@ -93,6 +94,14 @@ def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log
             log.info("Khối ngoại %d mã trong %.0f giây (lỗi %d)", len(fx_syms), time.time() - t0, len(fx_err))
         except Exception as e:                  # khối ngoại lỗi không được làm hỏng lần quét
             log.warning("Không tải được khối ngoại: %s", e)
+        try:                                    # tự doanh (CafeF) cho mã đủ thanh khoản: điểm Dòng tiền của Top 10
+            t0 = time.time()
+            prop_syms = [s for s in fx_syms if (lambda R0: sum(r["v"] for r in R0[-20:]) / 20 * R0[-1]["c"] >= MIN_LIQ_BIL)(
+                get_ohlcv(conn, s, 60, refresh=False))]
+            p_err = sync_prop(conn, prop_syms, scan_date)
+            log.info("Tự doanh %d mã trong %.0f giây (lỗi %d)", len(prop_syms), time.time() - t0, len(p_err))
+        except Exception as e:
+            log.warning("Không tải được tự doanh: %s", e)
         try:                                    # BCTC quý: chỉ mã đủ thanh khoản, tải lại mỗi tuần
             t0 = time.time()
             liquid = [s for s in fx_syms if (lambda R0: sum(r["v"] for r in R0[-20:]) / 20 * R0[-1]["c"] >= MIN_LIQ_BIL)(
