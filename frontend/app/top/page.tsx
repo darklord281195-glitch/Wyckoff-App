@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, day, fullDate, num, pct, price, type RankBt, type TopItem, type TopResp, type TopRow } from "@/lib/api";
 
@@ -138,7 +138,19 @@ export default function TopPage() {
   const [liqIn, setLiqIn] = useState("10");
   const [onlyBuy, setOnlyBuy] = useState(false);
   const [formula, setFormula] = useState<Formula>("new");
-  const [setup, setSetup] = useState(ALL4);                      // "" = mọi mã; "spring,near,..." = chỉ các điểm vào này
+  const [setup, setSetup] = useState(ALL4);
+  // phóng to bảng toàn màn hình (như trang Tổng quan); Esc để thoát
+  const tblBox = useRef<HTMLElement>(null);
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    const on = () => setFull(document.fullscreenElement === tblBox.current);
+    document.addEventListener("fullscreenchange", on);
+    return () => document.removeEventListener("fullscreenchange", on);
+  }, []);
+  const toggleFull = () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else tblBox.current?.requestFullscreen?.().catch(() => {});
+  };                      // "" = mọi mã; "spring,near,..." = chỉ các điểm vào này
   const [open, setOpen] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -190,6 +202,7 @@ export default function TopPage() {
 
   return (
     <>
+      <span className="wide-page" hidden />
       <section className="card hero">
         <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
           <div className="row" style={{ gap: 10 }}>
@@ -220,7 +233,7 @@ export default function TopPage() {
       {past && d && <div className="notice">Đang xem phiên cũ {fullDate(d.date)}: điểm tính bằng dữ liệu tới phiên này.
         <button className="btn" onClick={() => pick(dates[0])}>Về phiên mới nhất</button></div>}
 
-      <section className="card" style={{ display: "grid", gap: 12, alignContent: "start" }}>
+      <section ref={tblBox} className="card" style={{ display: "grid", gap: 12, alignContent: "start" }}>
         <div className="row" style={{ gap: 10 }}>
           <div className="tabs" role="group" aria-label="Công thức">
             <span className="muted" style={{ padding: "5px 4px 5px 8px", fontSize: 13 }}>Công thức:</span>
@@ -248,6 +261,12 @@ export default function TopPage() {
             onChange={(e) => setLiqIn(e.target.value)} style={{ width: 70 }} /> tỷ</label>
           <label className="muted" style={{ whiteSpace: "nowrap", display: "inline-flex", gap: 6, alignItems: "center" }}>
             <input id="onlybuy" type="checkbox" checked={onlyBuy} onChange={(e) => setOnlyBuy(e.target.checked)} /> Chỉ mã có điểm mua</label>
+          <button className="btn" onClick={toggleFull} title={full ? "Thoát toàn màn hình (Esc)" : "Phóng to bảng toàn màn hình"}
+            aria-label={full ? "Thoát toàn màn hình" : "Phóng to toàn màn hình"} style={{ padding: "0 9px" }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              {full ? <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" /> : <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />}
+            </svg>
+          </button>
           {loading && <span className="muted" style={{ fontSize: 12.5 }}>Đang tải…</span>}
         </div>
         <div className="tbl">
