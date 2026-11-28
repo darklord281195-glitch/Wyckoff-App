@@ -66,6 +66,22 @@ def test_api_session_dates(tmp_path, monkeypatch):
     assert all(x["date"] <= "2026-10-15" for x in s["signals"])
 
 
+def test_scan_latest_fills_mcdx_for_old_scans(tmp_path, monkeypatch):
+    """Bản quét trước khi có MCDX (không có trường mcdx): API tự tính từ giá đóng cửa, khớp cách tính của scan.py."""
+    from app.core import mcdx
+    from app.core.data import get_ohlcv
+    conn = _db(tmp_path)
+    d = conn.execute("SELECT max(d) FROM ohlcv WHERE sym='TCH'").fetchone()[0]
+    conn.execute("INSERT INTO scan_results(date,sym,stage,data) VALUES (?,?,?,?)",
+                 (d, "TCH", "D", json.dumps(dict(tag="D-LPS", stage="D", c=1, chg=0, liq=20, plan=None))))
+    conn.commit()
+    monkeypatch.setattr(api, "conn", conn)
+    monkeypatch.setattr(api, "_MCDX_CACHE", {})
+    row = TestClient(api.app).get("/api/scan/latest").json()["rows"][0]
+    want = mcdx.last([x["c"] for x in get_ohlcv(conn, "TCH", 500, refresh=False)])
+    assert row["banker"] == want["banker"] and row["banker_label"] == want["label"]
+
+
 def test_symbol_range_limits_wyckoff_search(tmp_path, monkeypatch):
     conn = _db(tmp_path)
     monkeypatch.setattr(api, "conn", conn)

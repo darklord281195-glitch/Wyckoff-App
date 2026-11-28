@@ -18,6 +18,7 @@ from .core import forward as forward_mod
 from .core import fundamentals as fund
 from .core import flow as flow_mod
 from .core import paper as paper_mod
+from .core import mcdx as mcdx_mod
 from .universe import GROUP_NAMES, INDEX, group_of, watchlist, listing, sectors
 from . import scan as scan_mod
 from . import intraday as intraday_mod
@@ -145,6 +146,21 @@ def market(date: str | None = None):
     return dict(date=d, **traffic_light(res, res and res.get("breadth")), tag=res and res.get("tag"))
 
 
+_MCDX_CACHE: dict[str, dict] = {}
+
+
+def _mcdx_fallback(d: str, syms: list[str]) -> dict:
+    """MCDX của mọi mã tại phiên d, tính từ giá đóng cửa trong DB, cho bản quét cũ chưa có trường `mcdx`.
+    Cùng dữ liệu như scan.py (giá 500 ngày tính tới hôm nay, cắt tới phiên d). Một truy vấn, nhớ theo phiên."""
+    if d in _MCDX_CACHE:
+        return _MCDX_CACHE[d]
+    since = (dt.date.today() - dt.timedelta(days=500)).isoformat()
+    q = "SELECT c FROM ohlcv WHERE sym=? AND d>=? AND d<=? ORDER BY d"          # theo khóa chính (sym, d): nhanh
+    out = {s: mcdx_mod.last([r[0] for r in conn.execute(q, (s, since, d))]) for s in syms}
+    _MCDX_CACHE.clear(); _MCDX_CACHE[d] = out          # chỉ giữ một phiên
+    return out
+
+
 @app.get("/api/scan/latest")
 def scan_latest(group: str | None = None, date: str | None = None):
     d = _session(date)
@@ -153,8 +169,12 @@ def scan_latest(group: str | None = None, date: str | None = None):
     wl = set(watchlist(conn))
     lst = listing(conn)
     rows = []
-    for sym, data in conn.execute("SELECT sym, data FROM scan_results WHERE date=? AND sym<>?", (d, INDEX)):
+    found = conn.execute("SELECT sym, data FROM scan_results WHERE date=? AND sym<>?", (d, INDEX)).fetchall()
+    scan_syms = [x[0] for x in found]
+    for sym, data in found:
         r = json.loads(data)
+        if "mcdx" not in r:                              # bản quét trước khi có MCDX: tính bổ sung
+            r["mcdx"] = _mcdx_fallback(d, scan_syms).get(sym)
         gs = group_of(sym, lst) + (["wl"] if sym in wl else [])
         if group and group not in gs:
             continue
