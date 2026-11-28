@@ -174,7 +174,8 @@ def scan_latest(group: str | None = None, date: str | None = None):
                          tag=r["tag"], stage=r["stage"], c=r["c"], chg=r["chg"],
                          liq=r["liq"], rs5=r.get("rs5"), rs20=r.get("rs20"), rs60=r.get("rs60"),
                          dist=r.get("dist"), extra=r.get("extra"), weak_drop=r.get("weak_drop"),
-                         levels=r.get("levels"), pos52=r.get("pos52"), fx10=r.get("fx10")))
+                         levels=r.get("levels"), pos52=r.get("pos52"), fx10=r.get("fx10"),
+                         banker=(r.get("mcdx") or {}).get("banker"), banker_chg5=(r.get("mcdx") or {}).get("banker_chg5")))
     return dict(date=d, rows=rows, groups=GROUP_NAMES, sectors=sectors(conn))
 
 

@@ -61,6 +61,28 @@ export function indicators(cl: number[]) {
   };
 }
 
+/** RSI Wilder chu kỳ n (null ở n nến đầu) */
+const rsiW = (cl: number[], n: number) => {
+  const out: (number | null)[] = cl.map(() => null);
+  let g = 0, l = 0;
+  for (let i = 1; i < cl.length; i++) {
+    const d = cl[i] - cl[i - 1], up = Math.max(d, 0), dn = Math.max(-d, 0);
+    if (i <= n) { g += up / n; l += dn / n; } else { g = (g * (n - 1) + up) / n; l = (l * (n - 1) + dn) / n; }
+    if (i >= n) out[i] = l === 0 ? 100 : 100 - 100 / (1 + g / l);
+  }
+  return out;
+};
+/** MCDX Plus (như backend core/mcdx.py): banker = 1,5 × (RSI50 − 50), hot = 0,7 × (RSI40 − 30), kẹp 0–20; TB 10 phiên của banker */
+export function mcdx(cl: number[]) {
+  const clip = (x: number | null, s: number, b: number) => (x == null ? null : Math.min(20, Math.max(0, s * (x - b))));
+  const banker = rsiW(cl, 50).map((x) => clip(x, 1.5, 50)), hot = rsiW(cl, 40).map((x) => clip(x, 0.7, 30));
+  const ma = banker.map((_, i) => {
+    const w = banker.slice(Math.max(0, i - 9), i + 1);
+    return w.length === 10 && w.every((x) => x != null) ? (w as number[]).reduce((a, b) => a + b, 0) / 10 : null;
+  });
+  return { banker, hot, ma };
+}
+
 type Node = { n: number; price: number; label?: string };   // n = số phiên tính từ phiên phân tích
 const SC_KEY = "wyckoff.scenario";                          // localStorage: bật/tắt kịch bản
 const ICHI_KEY = "wyckoff.ichimoku";                        // localStorage: bật/tắt mây Ichimoku
@@ -97,6 +119,7 @@ function futureDays(d: string, k: number, tf: Tf) {
   return out;
 }
 const IND_KEY = "wyckoff.indicators";                      // localStorage: bật/tắt RSI/MACD
+const MCDX_KEY = "wyckoff.mcdx";                           // localStorage: bật/tắt MCDX
 
 /** Kịch bản minh họa theo kế hoạch: nhánh thành công (vào -> T1 -> T2...) và nhánh hỏng (vào -> cắt lỗ).
  *  Thời gian ước lượng: vào sau 1 phiên nếu đang trong vùng, không thì 5 phiên; T1 trong ¾ hạn time_stop; mỗi mục tiêu sau +15 phiên. */
@@ -201,6 +224,13 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
   const toggleInd = () => {
     setShowInd(!showInd);
     try { localStorage.setItem(IND_KEY, showInd ? "0" : "1"); } catch { /* không có storage */ }
+  };
+  const box3 = useRef<HTMLDivElement>(null);
+  const [showMcdx, setShowMcdx] = useState(false);            // MCDX Plus bên dưới: mặc định tắt
+  useEffect(() => { try { if (localStorage.getItem(MCDX_KEY) === "1") setShowMcdx(true); } catch { /* không có storage */ } }, []);
+  const toggleMcdx = () => {
+    setShowMcdx(!showMcdx);
+    try { localStorage.setItem(MCDX_KEY, showMcdx ? "0" : "1"); } catch { /* không có storage */ }
   };
   const [showIchi, setShowIchi] = useState(false);            // mây Ichimoku trên biểu đồ giá: mặc định tắt
   useEffect(() => { try { if (localStorage.getItem(ICHI_KEY) === "1") setShowIchi(true); } catch { /* không có storage */ } }, []);
@@ -438,8 +468,36 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
       if (r0) ts.setVisibleLogicalRange(r0);
       chart.timeScale().subscribeVisibleLogicalRangeChange((r) => { if (r) ts.setVisibleLogicalRange(r); });
     }
-    return () => { sub?.remove(); chart.remove(); chartRef.current = null; setTip(null); setVtip(null); };
-  }, [view, tf, analysis, unit, sel?.from, sel?.to, sc, showSc, showInd, showIchi]);
+    // MCDX Plus: cột chồng 0–20 (xanh = nhỏ lẻ, vàng = hot money, đỏ = banker) + đường TB 10 phiên của banker
+    let sub2: IChartApi | null = null;
+    if (showMcdx && box3.current) {
+      sub2 = createChart(box3.current, {
+        autoSize: true,
+        layout: { background: { type: ColorType.Solid, color: surface }, textColor: muted, fontFamily: css("--font") },
+        grid: { vertLines: { color: grid }, horzLines: { color: grid } },
+        crosshair: { mode: CrosshairMode.Normal },
+        rightPriceScale: { borderColor: grid, minimumWidth: 70, scaleMargins: { top: 0.06, bottom: 0.02 } },
+        timeScale: { borderColor: grid, visible: false },
+        handleScroll: false, handleScale: false,
+        localization: { priceFormatter: (p: number) => num(p * 5, 0) + "%" },
+      });
+      const m = mcdx(rows.map((r) => r.c));
+      const range = { autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 20 } }) };
+      const hist = (color: string, xs: (number | null)[]) => sub2!.addHistogramSeries({ color, priceLineVisible: false,
+        lastValueVisible: false, base: 0, ...range })
+        .setData(rows.map((r, i) => (xs[i] == null ? { time: T(r.d) } : { time: T(r.d), value: xs[i] as number })));
+      hist("#22c55e", m.banker.map((x) => (x == null ? null : 20)));      // nhỏ lẻ: nền xanh cả cột
+      hist("#facc15", m.hot);
+      hist("#ef4444", m.banker);
+      sub2.addLineSeries({ color: css("--fg"), lineWidth: 1, priceLineVisible: false, lastValueVisible: false,
+        crosshairMarkerVisible: false, ...range })
+        .setData(rows.map((r, i) => (m.ma[i] == null ? { time: T(r.d) } : { time: T(r.d), value: m.ma[i] as number })));
+      const ts = sub2.timeScale(), r0 = chart.timeScale().getVisibleLogicalRange();
+      if (r0) ts.setVisibleLogicalRange(r0);
+      chart.timeScale().subscribeVisibleLogicalRangeChange((r) => { if (r) ts.setVisibleLogicalRange(r); });
+    }
+    return () => { sub?.remove(); sub2?.remove(); chart.remove(); chartRef.current = null; setTip(null); setVtip(null); };
+  }, [view, tf, analysis, unit, sel?.from, sel?.to, sc, showSc, showInd, showIchi, showMcdx]);
 
   // chế độ chọn khoảng: tắt kéo/zoom của biểu đồ để chuột dùng cho việc chọn
   useEffect(() => {
@@ -486,6 +544,9 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
         <button className={`btn${showInd ? " primary" : ""}`} onClick={toggleInd}
           title="RSI 14 (tím, vạch 70/30) và MACD 12-26-9 (xanh = MACD, cam = tín hiệu, cột = chênh lệch)">
           {showInd ? "✓ RSI/MACD" : "RSI/MACD"}</button>
+        <button className={`btn${showMcdx ? " primary" : ""}`} onClick={toggleMcdx}
+          title="MCDX Plus: đỏ = banker (RSI 50), vàng = hot money (RSI 40), xanh = nhỏ lẻ; đường = TB 10 phiên của banker">
+          {showMcdx ? "✓ MCDX" : "MCDX"}</button>
         {tf !== "D" && <span className="muted" style={{ fontSize: 12.5 }}>
           Mốc Wyckoff tính theo ngày, gắn vào {tf === "H" ? "nến 9h của ngày đó (nến 1 giờ chỉ có ~1 năm gần nhất)"
             : `nến ${TF_LABEL[tf].toLowerCase()} chứa ngày đó`} · kéo/cuộn để xem thêm</span>}
@@ -526,6 +587,7 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
         )}
       </div>
       {showInd && <div ref={box2} style={{ width: "100%", height: 220, marginTop: 4 }} />}
+      {showMcdx && <McdxPanel box={box3} closes={view[tf].rows.map((r) => r.c)} />}
       {sc && showSc && <p className="muted" style={{ margin: "6px 0 0", fontSize: 12.5 }}>
         Đường đứt nét: <span className="up">xanh</span> = kịch bản thành công (vào → các mục tiêu Nhân–Quả, đi theo nhịp lên –
         điều chỉnh ~40%, độ lớn nhịp theo ATR 14 của mã), <span className="down">đỏ</span> = kịch bản hỏng (về cắt lỗ).
@@ -538,6 +600,27 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
           {stats.ci_lo <= 0 && stats.ci_hi >= 0 ? ", chưa chắc có lợi thế" : ""}) · giữ TB {num(stats.avg_days)} phiên
         </> : <>Chưa có thống kê lịch sử cho loại kế hoạch này (chạy <code>app.backtest</code>).</>}
       </p>}
+    </>
+  );
+}
+
+/** Khung MCDX Plus dưới biểu đồ giá + chú giải phiên cuối (%): banker / hot money / nhỏ lẻ, banker so với TB 10 phiên. */
+function McdxPanel({ box, closes }: { box: React.RefObject<HTMLDivElement | null>; closes: number[] }) {
+  const m = useMemo(() => mcdx(closes), [closes]);
+  const i = closes.length - 1, b = m.banker[i], h = m.hot[i], ma = m.ma[i];
+  const pctOf = (x: number) => num(x * 5, 0) + "%";
+  return (
+    <>
+      <div ref={box} style={{ width: "100%", height: 150, marginTop: 4 }} />
+      <p className="muted" style={{ margin: "4px 0 0", fontSize: 12.5 }}>
+        <b>MCDX Plus</b>{b != null && h != null && <> · phiên cuối:{" "}
+          <span style={{ color: "#ef4444", fontWeight: 600 }}>banker {pctOf(b)}</span> ·{" "}
+          <span style={{ color: "#ca8a04", fontWeight: 600 }}>hot money {pctOf(Math.max(h - b, 0))}</span> ·{" "}
+          <span style={{ color: "#16a34a", fontWeight: 600 }}>nhỏ lẻ {pctOf(20 - Math.max(b, h))}</span>
+          {ma != null && <> · banker {b >= ma ? "trên" : "dưới"} đường TB 10 phiên ({b >= ma ? "đang tăng" : "đang giảm"})</>}</>}.
+        {" "}Đỏ dâng dần ở vùng đáy = tay to gom; đỏ chiếm trên nửa cột = xu hướng do tay to dẫn; đỏ co lại khi giá ở đỉnh = đang xả.
+        Thực chất là RSI 50/40 phiên tách tầng, không phải dữ liệu lệnh thật.
+      </p>
     </>
   );
 }

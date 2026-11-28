@@ -21,6 +21,7 @@ from .core import risk as risk_mod
 from .core import sectors as sectors_mod
 from .core import fundamentals as fund
 from .core import paper
+from .core import mcdx
 from .core import data as data_mod
 from . import health
 
@@ -110,6 +111,7 @@ def run(groups=None, symbols=None, dry_run=False, photos=True, refresh=True, log
             r = analyse(R, IDX, (lst.get(s) or {}).get("floor") or "UPCOM")
             if not r: continue
             r["fx10"] = net_sum(conn, s, scan_date)          # khối ngoại mua ròng 10 phiên (tỷ đồng)
+            r["mcdx"] = mcdx.last([x["c"] for x in R])        # MCDX Plus: % banker / hot money / nhỏ lẻ
             results[s] = r
             prev_row = conn.execute("SELECT data FROM scan_results WHERE sym=? AND date<? ORDER BY date DESC LIMIT 1",
                                     (s, scan_date)).fetchone()

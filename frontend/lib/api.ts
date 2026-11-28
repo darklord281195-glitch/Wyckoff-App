@@ -35,6 +35,7 @@ export type Row = {
   sc?: number | null; vx?: number | null;   // % so với đáy SC (khi chưa SOS); KL phiên cuối / TB20
   test?: "Spring" | "ST" | null;   // Spring/ST trong 15 phiên gần nhất (kế hoạch Spring/Test)
   fx10: number | null;   // khối ngoại mua ròng 10 phiên, tỷ đồng
+  banker?: number | null; banker_chg5?: number | null;   // MCDX Plus: % cột của "tay to" (đỏ) và thay đổi 5 phiên
 };
 export type Market = { date: string; light: "green" | "yellow" | "red" | "?"; text: string; c: number; chg: number; tag: string };
 export type Signal = { date: string; sym: string; kind: string; is_new: number; text: string };

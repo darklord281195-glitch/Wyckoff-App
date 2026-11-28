@@ -25,6 +25,7 @@ from .core.costs import BUY_FEE, SELL_FEE, SLIP_FIXED, slip_for, net_r
 from .core.foreign import backfill_foreign, net_sum
 from .core import fundamentals as fund
 from .core import signals as sig
+from .core import mcdx
 from .universe import universe, listing, INDEX
 
 HISTORY = 3000                          # số ngày lịch sử tải khi --backfill (~8 năm)
@@ -73,6 +74,7 @@ def run_symbol(sym, R, IDX, start="0000", end="9999", orders=None, slip=None, ti
     slip: trượt giá mỗi chiều; None = tự tính theo bước giá + thanh khoản lúc khớp (costs.slip_for, cần `floor`).
     Mỗi lệnh có thêm R_fixed (R nếu trượt giá cố định 0,25%) để so hai cách tính."""
     D, DI = [r["d"] for r in R], [r["d"] for r in IDX]
+    MC = mcdx.series([r["c"] for r in R])            # MCDX Plus tính một lần cho cả chuỗi (để --compare lọc theo banker)
     trades, prev, i = [], None, max(bisect.bisect_left(D, start), 119)
     while i < len(R) and D[i] <= end:
         if _liq(R, i) < MIN_LIQ_BIL:                 # tín hiệu mua chỉ báo cho mã đủ thanh khoản: bỏ qua sớm cho nhanh
@@ -101,7 +103,9 @@ def run_symbol(sym, R, IDX, start="0000", end="9999", orders=None, slip=None, ti
                            exit_d=D[e], why="đang giữ" if s["open"] else s["exits"][-1]["why"], hit=s["hit"],
                            days=e - f, R=r_net, ret=ret, open=s["open"], slip=round(sl * 100, 3),
                            R_fixed=net_r(px, p["stop"], gross, SLIP_FIXED)[0],
-                           t1_days=bisect.bisect_left(D, t1_exit) - f if t1_exit else None))
+                           t1_days=bisect.bisect_left(D, t1_exit) - f if t1_exit else None,
+                           banker=round(MC["banker"][i] / mcdx.TOP * 100, 1) if MC["banker"][i] is not None else None,
+                           banker_up=(MC["banker"][i] > MC["banker_ma"][i]) if MC["banker_ma"][i] is not None else None))
         i, prev = e + 1, None
     return trades
 
@@ -331,6 +335,11 @@ def run_compare(conn, syms, a, slip):
             lambda t: has_g(t) and has_r(t))
     compare(trades, "g) Không có chuỗi đỉnh hạ trong vùng", lambda t: not t["lh"])
     compare(trades, "g2) Luật ẩn hiện tại + không đỉnh hạ", lambda t: not hidden(t) and not t["lh"])
+    has_b = lambda t: t.get("banker") is not None
+    compare(trades, "h1) MCDX: banker ≥ 50% cột (đỏ quá nửa)", lambda t: t["banker"] >= 50, has_b)
+    compare(trades, "h2) MCDX: banker > 0 (có tay to)", lambda t: t["banker"] > 0, has_b)
+    compare(trades, "h3) MCDX: banker trên đường TB 10 phiên (đang tăng)", lambda t: t["banker_up"], lambda t: t.get("banker_up") is not None)
+    compare(trades, "h4) Luật ẩn hiện tại + banker ≥ 50%", lambda t: not hidden(t) and t["banker"] >= 50, has_b)
     print("\nd) Cắt lỗ theo thời gian (cùng điểm vào, chỉ khác số phiên chờ chạm T1)")
     print(f"  {'phiên':<8}{'giai đoạn':<10}{'lệnh':>7}{'thắng%':>8}{'R TB':>7}{'KTC95% R':>16}{'phiên giữ':>11}")
     for ts in tss:

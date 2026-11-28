@@ -6,7 +6,7 @@ import SectorCard from "@/components/SectorCard";
 import IntradayCard from "@/components/IntradayCard";
 import { api, Market, Row, Signal, GROUP_LABEL, STAGE_LABEL, fullDate, num, pct, price } from "@/lib/api";
 
-type SortKey = "sym" | "stage" | "chg" | "rs20" | "rs60" | "liq" | "dist" | "ready" | "rr" | "fx10";
+type SortKey = "sym" | "stage" | "chg" | "rs20" | "rs60" | "liq" | "dist" | "ready" | "rr" | "fx10" | "banker";
 const isEarly = (r: Row) => (r.stage === "BC" || r.stage === "near") && (r.ready ?? 0) >= 70 && (r.dist ?? -99) >= -8;
 const STAGE_ORDER: Record<string, number> = { D: 0, near: 1, E: 2, BC: 3, below: 4, failed: 5, new: 6 };
 const LIGHT_VN: Record<string, string> = { green: "Đèn xanh", yellow: "Đèn vàng", red: "Đèn đỏ" };
@@ -187,7 +187,7 @@ export default function Home() {
               <tr>
                 {th("sym", "Mã")}{th("stage", "Pha")}<th className="n">Giá</th>{th("chg", "%", true)}{th("ready", "Điểm", true)}
                 <th className="n">Vùng vào</th><th className="n">Cắt lỗ</th>{th("rr", "Lời/lỗ", true)}
-                {th("dist", "So trần", true)}{th("rs20", "RS20", true)}{th("rs60", "RS60", true)}{th("liq", "GT (tỷ)", true)}{th("fx10", "NN 10p (tỷ)", true)}<th>Ghi chú</th>
+                {th("dist", "So trần", true)}{th("rs20", "RS20", true)}{th("rs60", "RS60", true)}{th("liq", "GT (tỷ)", true)}{th("fx10", "NN 10p (tỷ)", true)}{th("banker", "Banker", true)}<th>Ghi chú</th>
               </tr>
             </thead>
             <tbody>
@@ -217,6 +217,10 @@ export default function Home() {
                   <td className="n">{num(r.liq)}</td>
                   <td className={`n ${r.fx10 == null ? "muted" : r.fx10 >= 0 ? "up" : "down"}`}>
                     {r.fx10 == null ? "–" : (r.fx10 > 0 ? "+" : "") + num(r.fx10, 1)}</td>
+                  <td className="n" title="MCDX Plus: % cột của banker (đỏ); mũi tên = thay đổi 5 phiên"
+                    style={{ color: r.banker == null ? "var(--muted)" : r.banker >= 50 ? "#dc2626" : undefined, fontWeight: (r.banker ?? 0) >= 50 ? 700 : 400 }}>
+                    {r.banker == null ? "–" : num(r.banker, 0) + "%"}
+                    {r.banker_chg5 ? <span className={r.banker_chg5 > 0 ? "up" : "down"} style={{ fontSize: 11 }}> {r.banker_chg5 > 0 ? "▲" : "▼"}</span> : null}</td>
                   <td className="muted" style={{ whiteSpace: "normal", minWidth: 220, fontSize: 13 }}>{r.extra}</td>
                 </tr>
               ))}
@@ -225,7 +229,7 @@ export default function Home() {
         </div>
         <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
           {view.length}/{rows.length} mã · Điểm = mức sẵn sàng tăng 0–100 · 🎯 giá đang trong vùng vào ·
-          Lời/lỗ tính tới mục tiêu Nhân–Quả · RS = chênh lệch % so với VNINDEX · So trần = khoảng cách tới trần (AR) · NN 10p = khối ngoại mua ròng 10 phiên · * đợt giảm trước đó yếu
+          Lời/lỗ tính tới mục tiêu Nhân–Quả · RS = chênh lệch % so với VNINDEX · So trần = khoảng cách tới trần (AR) · NN 10p = khối ngoại mua ròng 10 phiên · Banker = MCDX Plus, % cột của “tay to” (RSI 50 phiên tách tầng; ▲▼ so với 5 phiên trước) · * đợt giảm trước đó yếu
         </p>
       </section>
     </>
