@@ -1,7 +1,7 @@
 """Kiểm chứng lịch sử Top tiềm năng: đầu mỗi tháng chấm lại mọi mã đủ thanh khoản (chỉ dữ liệu tới phiên đó, cùng hàm
 rank.factors / rank.pct_scores như bản chạy thật), so lợi nhuận `hold` phiên sau của top N với nhóm được xếp (bỏ
 rank.EXCLUDE_TAGS), mọi mã đủ thanh khoản và VNINDEX. Có lợi thế khi top N hơn TB mọi mã đủ thanh khoản ở CẢ 2019–23
-lẫn 2024–26.
+lẫn 2024–26. Công thức cũ 3 mục (rank.score_symbol, chỉ mã có điểm mua) được kiểm chứng song song, ghi rank_bt_ref.
 
 Cách dùng (trong thư mục backend):
   .venv\\Scripts\\python -m app.rank_bt                    # mọi mã từ 2019-06-01, ghi bảng rank_bt + logs\\rank-bt-YYYYMMDD.csv
@@ -18,6 +18,8 @@ from .config import LOG_DIR, MIN_LIQ_BIL
 from .db import connect
 from .core.data import get_ohlcv
 from .core.wyckoff import analyse
+from .core.foreign import net_sum
+from .core import fundamentals as fund
 from .core import rank as rank_mod
 from .backtest import HISTORY, _window, _liq
 from .universe import universe, listing, INDEX
@@ -76,13 +78,14 @@ def month_starts(IDX, start, end, hold):
 
 def collect(conn, syms, start, end, hold=20, log=print):
     """Các lượt chấm: dict(date, sym, tag, excluded, eligible, dry, vol, ready, fwd20, fwd60) + {ngày: lợi nhuận
-    VNINDEX}. Điểm (total, p_dry, p_vol, p_ready) được tính theo từng tháng trong months()."""
+    VNINDEX}. Điểm công thức mới (total, p_dry, p_vol, p_ready) được tính theo từng tháng trong months(); công thức cũ
+    (ref_total, W, T, F) chấm luôn ở đây (tự doanh trung tính vì nguồn chỉ có ~1 năm)."""
     t0 = time.time()
     IDX = get_ohlcv(conn, INDEX, HISTORY + 400, refresh=False)
     DI = [r["d"] for r in IDX]
     days = month_starts(IDX, start, end, hold)
     vni = {d: fwd(IDX, DI.index(d), hold) for d in days}
-    lst = listing(conn)
+    lst, stats = listing(conn), rank_mod.plan_stats(conn)
     out = []
     for n, s in enumerate(syms, 1):
         R = get_ohlcv(conn, s, HISTORY + 400, refresh=False)
@@ -90,6 +93,7 @@ def collect(conn, syms, start, end, hold=20, log=print):
             continue
         D = [r["d"] for r in R]
         floor = (lst.get(s) or {}).get("floor") or "UPCOM"
+        frows = None
         for d in days:
             i = bisect.bisect_left(D, d)
             if i >= len(D) or D[i] != d or i < 119 or _liq(R, i) < MIN_LIQ_BIL:
@@ -100,9 +104,15 @@ def collect(conn, syms, start, end, hold=20, log=print):
                 continue
             since = (dt.date.fromisoformat(d) - dt.timedelta(days=500)).isoformat()
             bars = R[bisect.bisect_right(D, since, 0, i):i + 1]
+            if frows is None:
+                frows = fund.load(conn, s)
+            sc = rank_mod.score_symbol(r, bars, fund.metrics_at(frows, d), net_sum(conn, s, d, 20),
+                                       net_sum(conn, s, d, 5), None, stats)
+            p = sc["pillars"]
             out.append(dict(date=d, sym=s, tag=r.get("tag"), excluded=int(r.get("tag") in rank_mod.EXCLUDE_TAGS),
                             eligible=int(rank_mod.eligible(r)), **rank_mod.factors(r, bars),
-                            fwd20=fwd(R, i, hold), fwd60=fwd(R, i, 60), top=0))
+                            ref_total=sc["total"], W=p["wyckoff"]["score"], T=p["tech"]["score"], F=p["flow"]["score"],
+                            fwd20=fwd(R, i, hold), fwd60=fwd(R, i, 60), top=0, top_ref=0))
         if n % 100 == 0:
             log(f"  {n}/{len(syms)} mã · {len(out)} lượt chấm · {time.time() - t0:.0f} giây")
     return out, vni
@@ -113,10 +123,11 @@ def _mean(xs):
     return round(sum(xs) / len(xs), 2) if xs else None
 
 
-def months(picks, vni, top_n=10):
-    """Mỗi tháng: chấm phần trăm trong nhóm được xếp (E = bỏ EXCLUDE_TAGS); lợi nhuận TB của top N, của E, mọi mã đủ
-    thanh khoản, VNINDEX; IC Spearman giữa điểm (và từng thành phần) với fwd20 trong E (|E| ≥ MIN_E).
-    Ghi total / p_dry / p_vol / p_ready và top=1 vào các lượt chấm."""
+def months(picks, vni, top_n=10, formula="new"):
+    """Mỗi tháng: lợi nhuận TB của top N, của nhóm xét E, mọi mã đủ thanh khoản, VNINDEX; IC Spearman giữa điểm (và
+    từng thành phần) với fwd20 trong E (|E| ≥ MIN_E).
+    formula='new': E = bỏ EXCLUDE_TAGS, chấm phần trăm (ghi total / p_dry / p_vol / p_ready, top=1);
+    formula='old': E = mã có điểm mua, xếp theo ref_total rồi W (ghi top_ref=1); IC từng mục W/T/F."""
     by = defaultdict(list)
     for x in picks:
         if x["fwd20"] is not None:
@@ -124,17 +135,23 @@ def months(picks, vni, top_n=10):
     out = []
     for d in sorted(by):
         xs = by[d]
-        E = [x for x in xs if not x["excluded"]]
+        old = formula == "old"
+        E = [x for x in xs if (x["eligible"] if old else not x["excluded"])]
         if not E:
             continue
-        for x, sc in zip(E, rank_mod.pct_scores(E)):
-            x.update(total=sc["total"], p_dry=sc["dry"], p_vol=sc["vol"], p_ready=sc["ready"])
-        E.sort(key=lambda x: (-x["total"], -x["p_dry"], x["sym"]))
+        if old:
+            E.sort(key=lambda x: (-x["ref_total"], -x["W"], x["sym"]))
+        else:
+            for x, sc in zip(E, rank_mod.pct_scores(E)):
+                x.update(total=sc["total"], p_dry=sc["dry"], p_vol=sc["vol"], p_ready=sc["ready"])
+            E.sort(key=lambda x: (-x["total"], -x["p_dry"], x["sym"]))
         top = E[:top_n]
         for x in top:
-            x["top"] = 1
+            x["top_ref" if old else "top"] = 1
         ic = {}
-        for k, key in (("ic", "total"), ("ic_w", "p_dry"), ("ic_t", "p_vol"), ("ic_f", "p_ready")):
+        keys = (("ic", "ref_total"), ("ic_w", "W"), ("ic_t", "T"), ("ic_f", "F")) if old else \
+            (("ic", "total"), ("ic_w", "p_dry"), ("ic_t", "p_vol"), ("ic_f", "p_ready"))
+        for k, key in keys:
             ic[k] = spearman([x[key] for x in E], [x["fwd20"] for x in E]) if len(E) >= MIN_E else None
         out.append(dict(date=d, n_e=len(E), top_ret=_mean(x["fwd20"] for x in top), elig_ret=_mean(x["fwd20"] for x in E),
                         liq_ret=_mean(x["fwd20"] for x in xs), vni_ret=vni.get(d),
@@ -164,25 +181,28 @@ def summarize(ms, top_n, hold):
 COLS = ("months", "top_n", "hold", "top_ret", "elig_ret", "liq_ret", "vni_ret", "beat_pct", "top_win", "ic", "ic_w", "ic_t", "ic_f")
 
 
-def save(conn, res):
-    conn.execute("DELETE FROM rank_bt")
-    conn.executemany(f"INSERT INTO rank_bt(period,{','.join(COLS)},updated) VALUES (?,{','.join('?' * len(COLS))},"
+def save(conn, res, table="rank_bt"):
+    conn.execute(f"DELETE FROM {table}")
+    conn.executemany(f"INSERT INTO {table}(period,{','.join(COLS)},updated) VALUES (?,{','.join('?' * len(COLS))},"
                      "date('now','localtime'))", [(k, *(v[c] for c in COLS)) for k, v in res.items()])
     conn.commit()
 
 
-def print_report(res, hold, top_n):
+def print_report(res, hold, top_n, old=False):
     f = lambda x, d=2: "–" if x is None else f"{x:+.{d}f}"
-    print(f"\nLợi nhuận TB {hold} phiên (%, chưa trừ phí), mua giá mở cửa phiên sau ngày chấm đầu tháng:")
-    print(f"{'giai đoạn':<10}{'tháng':>6}{'top' + str(top_n):>8}{'nhóm xếp':>9}{'đủ TK':>8}{'VNI':>8}{'thắng%':>8}"
-          f"{'lãi%':>7}{'IC':>8}{'IC cạn':>8}{'IC b.đ':>8}{'IC s.s':>8}")
+    print(f"\n{'CÔNG THỨC CŨ (3 mục, chỉ mã có điểm mua)' if old else 'CÔNG THỨC MỚI (cung cạn · biến động thấp · sẵn sàng)'}"
+          f" · lợi nhuận TB {hold} phiên (%, chưa trừ phí), mua giá mở cửa phiên sau ngày chấm đầu tháng:")
+    print(f"{'giai đoạn':<10}{'tháng':>6}{'top' + str(top_n):>8}{'có ĐM' if old else 'nhóm xếp':>9}{'đủ TK':>8}{'VNI':>8}"
+          f"{'thắng%':>8}{'lãi%':>7}{'IC':>8}" + (f"{'IC W':>8}{'IC T':>8}{'IC F':>8}" if old else
+                                                f"{'IC cạn':>8}{'IC b.đ':>8}{'IC s.s':>8}"))
     for k, v in res.items():
         print(f"{k:<10}{v['months']:>6}{f(v['top_ret']):>8}{f(v['elig_ret']):>9}{f(v['liq_ret']):>8}{f(v['vni_ret']):>8}"
               f"{v['beat_pct']:>8.0f}{v['top_win']:>7.0f}{f(v['ic'], 3):>8}{f(v['ic_w'], 3):>8}{f(v['ic_t'], 3):>8}"
               f"{f(v['ic_f'], 3):>8}")
-    print("nhóm xếp = mã đủ thanh khoản trừ B/C, SOS hỏng, dưới hỗ trợ · thắng% = % số tháng top thắng TB mọi mã đủ "
-          "thanh khoản · lãi% = % lượt chọn có lời · IC = tương quan hạng điểm với lợi nhuận (> 0,05 là có ích). "
-          "Có lợi thế khi top > đủ TK ở CẢ 2019–23 lẫn 2024–26.")
+    if not old:
+        print("nhóm xếp = mã đủ thanh khoản trừ B/C, SOS hỏng, dưới hỗ trợ · có ĐM = mã có điểm mua · thắng% = % số tháng "
+              "top thắng TB mọi mã đủ thanh khoản · lãi% = % lượt chọn có lời · IC = tương quan hạng điểm với lợi nhuận "
+              "(> 0,05 là có ích). Có lợi thế khi top > đủ TK ở CẢ 2019–23 lẫn 2024–26.")
 
 
 def main():
@@ -206,6 +226,7 @@ def main():
         picks, vni = collect(conn, syms, a.start, a.end, a.hold)
         ms = months(picks, vni, a.top)
         res = summarize(ms, a.top, a.hold)
+        res_old = summarize(months(picks, vni, a.top, "old"), a.top, a.hold)
         if not res:
             print("Không có tháng nào đủ dữ liệu (đã chạy app.backtest --backfill chưa?)")
             if not a.symbols:
@@ -215,14 +236,17 @@ def main():
         path = LOG_DIR / f"rank-bt-{dt.date.today():%Y%m%d}.csv"
         with open(path, "w", newline="", encoding="utf-8-sig") as f:
             w = csv.DictWriter(f, fieldnames=["date", "sym", "tag", "excluded", "eligible", "dry", "vol", "ready", "total",
-                                              "p_dry", "p_vol", "p_ready", "fwd20", "fwd60", "top"])
+                                              "p_dry", "p_vol", "p_ready", "ref_total", "W", "T", "F", "fwd20", "fwd60",
+                                              "top", "top_ref"])
             w.writeheader(); w.writerows(picks)
         print(f"Kiểm chứng {len(syms)} mã, {len(ms)} tháng, {len(picks)} lượt chấm · {time.time() - t0:.0f} giây")
         print_report(res, a.hold, a.top)
+        print_report(res_old, a.hold, a.top, old=True)
         print(f"\nChi tiết từng lượt chấm: {path}")
         print("Giới hạn: chỉ mã đang niêm yết, chưa trừ phí và trượt giá (~1%/lần mua–bán).")
         if not a.symbols:
             save(conn, res)
+            save(conn, res_old, "rank_bt_ref")
             health.record(conn, "rank_bt", started, "ok", dict(months=len(ms), picks=len(picks),
                                                                  seconds=round(time.time() - t0)))
             print("Đã lưu kết quả (thẻ Kiểm chứng lịch sử trên trang Top 10).")

@@ -223,6 +223,12 @@ def format_top(top: dict, light: str | None = None) -> list[str]:
            "  " + " · ".join(f"{x['sym']} {x['total']}" + (" 🆕" if x.get("new") else "") for x in rows)]
     if top.get("dropped"):
         out.append("  Rời top: " + ", ".join(x["sym"] for x in top["dropped"]))
+    old = (top.get("old") or {}).get("rows") or []
+    if old:                                     # công thức cũ 3 mục, chạy song song để so
+        out.append("  Công thức cũ (3 mục): " + " · ".join(f"{x['sym']} {x['total']}" + (" 🆕" if x.get("new") else "")
+                                                         for x in old))
+        if top.get("both"):
+            out.append("  Cả hai cùng chọn: " + ", ".join(top["both"]))
     out.append(f"  {WEB_URL}/top")
     return out
 

@@ -215,10 +215,10 @@ def _top_rows(d: str, min_liq: float, light: str | None, fresh: bool = False) ->
     return rows
 
 
-def _validation():
+def _validation(table: str = "rank_bt"):
     """Kết quả kiểm chứng lịch sử (python -m app.rank_bt) theo giai đoạn; None nếu chưa chạy."""
     try:
-        rows = [dict(x) for x in conn.execute("SELECT * FROM rank_bt ORDER BY CASE period WHEN 'Tất cả' THEN 9 ELSE 0 END, period")]
+        rows = [dict(x) for x in conn.execute(f"SELECT * FROM {table} ORDER BY CASE period WHEN 'Tất cả' THEN 9 ELSE 0 END, period")]
     except Exception:                            # DB cũ chưa có bảng
         return None
     return dict(rows=rows, updated=max(x["updated"] or "" for x in rows)) if rows else None
@@ -226,30 +226,36 @@ def _validation():
 
 @app.get("/api/top")
 def top(date: str | None = None, min_liq: float = Query(MIN_LIQ_BIL, ge=0), n: int = Query(10, ge=1, le=50),
-        all: bool = True, vs: str = Query("prev", pattern="^(prev|week)$")):
-    """Top n tiềm năng phiên `date` (mặc định mới nhất): điểm = TB phần trăm cung cạn · biến động thấp · điểm sẵn sàng
-    trong nhóm được xếp (bỏ B/C, SOS hỏng, dưới hỗ trợ), xem core/rank.py. all=false: chỉ mã có điểm mua.
-    vs: so thứ hạng với phiên trước (prev) hoặc 1 tuần trước (week)."""
+        all: bool | None = None, vs: str = Query("prev", pattern="^(prev|week)$"),
+        formula: str = Query("new", pattern="^(new|old)$")):
+    """Top n tiềm năng phiên `date` (mặc định mới nhất). formula='new': điểm = TB phần trăm cung cạn · biến động thấp ·
+    điểm sẵn sàng trong nhóm được xếp (bỏ B/C, SOS hỏng, dưới hỗ trợ); 'old': công thức cũ 3 mục (chạy song song để so).
+    all=false: chỉ mã có điểm mua (mặc định: new = mọi mã, old = chỉ mã có điểm mua). vs: so thứ hạng với phiên trước
+    (prev) hoặc 1 tuần trước (week). both = mã nằm trong top n của cả hai công thức (mỗi công thức theo mặc định)."""
     d = _session(date)
     if not d:
         raise HTTPException(404, "Chưa có kết quả quét")
     mk = market(d)
-    rows = [dict(x) for x in _top_rows(d, min_liq, mk["light"])]                # changes() gắn thêm trường: không sửa bản trong cache
-    only = not all
+    base = _top_rows(d, min_liq, mk["light"])
+    rows = [dict(x) for x in rank_mod.view(base, formula)]                # changes() gắn thêm trường: không sửa bản trong cache
+    only = (formula == "old") if all is None else not all
+    other = rank_mod.order(rank_mod.view(base, "new" if formula == "old" else "old"), formula == "new")[:n]
     cmp = rank_mod.compare_date(conn, d, vs)
     prev_pos = {}
     if cmp:
         snap = min_liq == MIN_LIQ_BIL and conn.execute("SELECT 1 FROM rank_daily WHERE date=? LIMIT 1", (cmp,)).fetchone()
         prev_pos = rank_mod.positions(conn, cmp, min_liq, only,
-                                      rows=None if snap else _top_rows(cmp, min_liq, market(cmp)["light"]))
+                                      rows=None if snap else _top_rows(cmp, min_liq, market(cmp)["light"]), formula=formula)
     dropped = rank_mod.changes(rows, prev_pos, n, only)
-    cnt, days = rank_mod.in_top(conn, d, n)
+    cnt, days = rank_mod.in_top(conn, d, n, formula=formula, eligible_only=only)
     out = [dict(x, in_top=cnt.get(x["sym"], 0), in_top_of=days) for x in rank_mod.order(rows, only)[:n]]
+    others = {x["sym"] for x in other}
     return dict(date=d, light=mk["light"], light_text=mk.get("text"), min_liq=min_liq,
                 factors=[dict(key=k, label=lb) for k, lb, _ in rank_mod.FACTORS], exclude=list(rank_mod.EXCLUDE_TAGS),
                 n_liquid=len(rows), n_pool=sum(not x["excluded"] for x in rows),
                 n_eligible=sum(x["eligible"] and not x["excluded"] for x in rows), compare=dict(vs=vs, date=cmp),
-                rows=out, dropped=dropped, validation=_validation())
+                formula=formula, only=only, both=[x["sym"] for x in out if x["sym"] in others],
+                rows=out, dropped=dropped, validation=_validation("rank_bt_ref" if formula == "old" else "rank_bt"))
 
 
 @app.get("/api/signals")

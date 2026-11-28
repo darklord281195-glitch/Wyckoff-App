@@ -162,6 +162,8 @@ export type TopResp = {
   date: string; light: "green" | "yellow" | "red" | "?"; light_text: string; min_liq: number;
   factors: { key: string; label: string }[]; exclude: string[];
   n_liquid: number; n_pool: number; n_eligible: number; compare: { vs: "prev" | "week"; date: string | null }; rows: TopRow[];
+  /** formula: công thức đang xem (old = 3 mục cũ chạy song song); only: chỉ mã có điểm mua; both: mã có trong top của cả hai */
+  formula: "new" | "old"; only: boolean; both: string[];
   dropped: { sym: string; prev_pos: number; pos?: number; total?: number; reason?: string }[];
   validation: { rows: RankBt[]; updated: string } | null;
 };

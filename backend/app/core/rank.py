@@ -8,7 +8,8 @@ thanh khoản trừ nhóm EXCLUDE_TAGS được xếp phần trăm theo 3 thành
 Kiểm chứng (top 10 so với TB mọi mã đủ thanh khoản, 20 phiên): 2019–23 +1,17%, 2024–26 +1,46%; công thức 3 mục cũ
 −0,32% / +1,28%. RSI/MACD/khối ngoại đổi chiều giữa hai giai đoạn nên không tính điểm.
 
-3 mục cũ (Wyckoff · Kỹ thuật & Cơ bản · Dòng tiền) vẫn được chấm để hiện tham khảo, KHÔNG tính vào điểm xếp hạng.
+Công thức cũ 3 mục (Wyckoff · Kỹ thuật & Cơ bản · Dòng tiền, 1/3 mỗi mục; ref_total) vẫn chạy song song để so: có bảng
+xếp hạng riêng (formula="old", chỉ mã có điểm mua như trước), snapshot rank_daily_ref và kiểm chứng rank_bt_ref.
 Mỗi mục trả dict(score, items); mỗi item dict(key, label, text, pts, max, tone), tone ∈ good / warn / bad / info.
 
 Đây là bảng xếp hạng để tham khảo, KHÔNG phải luật mua: không đổi tín hiệu, luật ẩn theo đèn hay tự mua thử nghiệm.
@@ -328,15 +329,17 @@ def rank(conn, d: str, min_liq: float = MIN_LIQ_BIL, light: str | None = None) -
         fm = fund.metrics_at(fund.load(conn, sym), d)
         bars = bars_until(conn, sym, d)
         s = score_symbol(r, bars, fm, net_sum(conn, sym, d, 20), net_sum(conn, sym, d, 5), prop_net(conn, sym, d), stats)
+        ref_hl, ref_warn = s["highlights"], list(s["warnings"])          # của công thức cũ
         # cảnh báo: chỉ phần trừ điểm của Wyckoff (đỉnh hạ, phân phối) + đèn; RSI/MACD/khối ngoại không còn tính điểm
         s["warnings"] = [x for x in s["pillars"]["wyckoff"]["items"] if x["tone"] == "bad" and x["key"] in ("lh", "distrib")]
         p, info = r.get("plan") or {}, lst.get(sym) or {}
         t = main_target(p)
         ok = eligible(r)
-        if light == "red":
-            s["warnings"].append(_item("light", "Đèn", LIGHT_WARN["red"], 0, 0, "bad"))
-        elif light == "yellow" and ((r.get("tag") or "").startswith("D-LPS") or r.get("tag") == "D sớm"):
-            s["warnings"].append(_item("light", "Đèn", LIGHT_WARN["yellow"], 0, 0, "bad"))
+        lw = (LIGHT_WARN["red"] if light == "red" else LIGHT_WARN["yellow"]
+              if light == "yellow" and ((r.get("tag") or "").startswith("D-LPS") or r.get("tag") == "D sớm") else None)
+        if lw:
+            s["warnings"].append(_item("light", "Đèn", lw, 0, 0, "bad"))
+            ref_warn.append(_item("light", "Đèn", lw, 0, 0, "bad"))
         rows.append(dict(sym=sym, name=info.get("name"), icb_name=info.get("icb_name"), floor=info.get("floor"),
                          c=r.get("c"), chg=r.get("chg"), tag=r.get("tag"), stage=r.get("stage"), plan_kind=p.get("kind"),
                          entry_lo=p.get("entry_lo"), entry_hi=p.get("entry_hi"), stop=p.get("stop"), rr=p.get("rr"),
@@ -345,6 +348,7 @@ def rank(conn, d: str, min_liq: float = MIN_LIQ_BIL, light: str | None = None) -
                          if t and r.get("c") else None,
                          liq=r.get("liq"), eligible=ok, excluded=r.get("tag") in EXCLUDE_TAGS, raw=factors(r, bars),
                          ref_total=s["total"], pillars=s["pillars"], warnings=s["warnings"], highlights=[],
+                         ref_highlights=ref_hl, ref_warnings=ref_warn,
                          total=None, parts=None, factors=[]))
     pool = [x for x in rows if not x["excluded"]]
     for x, sc in zip(pool, pct_scores([x["raw"] for x in pool])):
@@ -358,6 +362,24 @@ def rank(conn, d: str, min_liq: float = MIN_LIQ_BIL, light: str | None = None) -
     return rows
 
 
+# ---------------------------------------------------------------- Hai công thức
+TABLES = dict(new="rank_daily", old="rank_daily_ref")
+
+
+def view(rows: list[dict], formula: str = "new") -> list[dict]:
+    """Các dòng theo công thức: 'new' = như rank(); 'old' = công thức cũ 3 mục (total = ref_total, không loại nhóm nào,
+    điểm nổi bật / cảnh báo như cũ), sắp xếp lại theo điểm cũ rồi điểm Wyckoff."""
+    if formula != "old":
+        return rows
+    out = [dict(x, total=x["ref_total"], excluded=False, highlights=x["ref_highlights"], warnings=x["ref_warnings"],
+                pct_rank=None) for x in rows]
+    out.sort(key=lambda x: (-x["total"], -x["pillars"]["wyckoff"]["score"], x["sym"]))
+    el = [x["total"] for x in out if x["eligible"]]
+    for x in out:
+        x["pct_rank"] = round(100 * sum(v < x["total"] for v in el) / len(el)) if el else None
+    return out
+
+
 # ---------------------------------------------------------------- Lưu mỗi phiên + thay đổi
 def save_daily(conn, d: str, light: str | None = None) -> list[dict]:
     """Chấm phiên d (GT ≥ MIN_LIQ_BIL) và ghi đè snapshot của phiên đó vào rank_daily (chỉ nhóm được xếp; cột w/t/f
@@ -367,6 +389,10 @@ def save_daily(conn, d: str, light: str | None = None) -> list[dict]:
     conn.executemany("INSERT INTO rank_daily(date,sym,total,w,t,f,eligible) VALUES (?,?,?,?,?,?,?)",
                      [(d, x["sym"], x["total"], round(x["parts"]["dry"]), round(x["parts"]["vol"]),
                        round(x["parts"]["ready"]), int(x["eligible"])) for x in rows if not x["excluded"]])
+    conn.execute("DELETE FROM rank_daily_ref WHERE date=?", (d,))
+    conn.executemany("INSERT INTO rank_daily_ref(date,sym,total,w,t,f,eligible) VALUES (?,?,?,?,?,?,?)",
+                     [(d, x["sym"], x["ref_total"], x["pillars"]["wyckoff"]["score"], x["pillars"]["tech"]["score"],
+                       x["pillars"]["flow"]["score"], int(x["eligible"])) for x in rows])
     conn.commit()
     return rows
 
@@ -390,15 +416,17 @@ def positions_of(rows: list[dict], eligible_only: bool = False) -> dict:
     return {x["sym"]: i for i, x in enumerate(order(rows, eligible_only), 1)}
 
 
-def positions(conn, d: str, min_liq: float = MIN_LIQ_BIL, eligible_only: bool = False, rows=None) -> dict:
-    """{mã: hạng} phiên d: từ rank_daily nếu có (và min_liq = MIN_LIQ_BIL), không thì chấm lại (hoặc dùng rows đã chấm)."""
+def positions(conn, d: str, min_liq: float = MIN_LIQ_BIL, eligible_only: bool = False, rows=None,
+              formula: str = "new") -> dict:
+    """{mã: hạng} phiên d: từ snapshot của công thức nếu có (và min_liq = MIN_LIQ_BIL), không thì chấm lại (hoặc dùng
+    rows đã chấm)."""
     if rows is None and min_liq == MIN_LIQ_BIL:
-        q = "SELECT sym FROM rank_daily WHERE date=?" + (" AND eligible=1" if eligible_only else "") + \
+        q = f"SELECT sym FROM {TABLES[formula]} WHERE date=?" + (" AND eligible=1" if eligible_only else "") + \
             " ORDER BY total DESC, w DESC, sym"
         got = [x[0] for x in conn.execute(q, (d,))]
         if got:
             return {s: i for i, s in enumerate(got, 1)}
-    return positions_of(rows if rows is not None else rank(conn, d, min_liq), eligible_only)
+    return positions_of(view(rows if rows is not None else rank(conn, d, min_liq), formula), eligible_only)
 
 
 def changes(cur_rows: list[dict], prev_pos: dict, n: int, eligible_only: bool = False) -> list[dict]:
@@ -424,25 +452,34 @@ def changes(cur_rows: list[dict], prev_pos: dict, n: int, eligible_only: bool = 
     return dropped
 
 
-def in_top(conn, d: str, n: int = 10, last: int = 20) -> tuple[dict, int]:
-    """({mã: số phiên nằm trong top n}, số phiên đã xét): tối đa `last` snapshot ≤ d."""
-    ds = [x[0] for x in conn.execute("SELECT DISTINCT date FROM rank_daily WHERE date<=? ORDER BY date DESC LIMIT ?",
+def in_top(conn, d: str, n: int = 10, last: int = 20, formula: str = "new", eligible_only: bool = False) -> tuple[dict, int]:
+    """({mã: số phiên nằm trong top n}, số phiên đã xét): tối đa `last` snapshot ≤ d của công thức."""
+    t = TABLES[formula]
+    ds = [x[0] for x in conn.execute(f"SELECT DISTINCT date FROM {t} WHERE date<=? ORDER BY date DESC LIMIT ?",
                                      (d, last))]
     cnt: dict = {}
     for day in ds:
-        for (s,) in conn.execute("SELECT sym FROM rank_daily WHERE date=? ORDER BY total DESC, w DESC, sym LIMIT ?",
-                                 (day, n)):
+        q = f"SELECT sym FROM {t} WHERE date=?" + (" AND eligible=1" if eligible_only else "") + \
+            " ORDER BY total DESC, w DESC, sym LIMIT ?"
+        for (s,) in conn.execute(q, (day, n)):
             cnt[s] = cnt.get(s, 0) + 1
     return cnt, len(ds)
 
 
 def daily_top(conn, d: str, light: str | None, n: int = 10) -> dict:
-    """Sau lần quét: lưu snapshot phiên d, trả top n (cờ new so với phiên trước) + các mã rời top."""
+    """Sau lần quét: lưu snapshot phiên d (cả hai công thức), trả top n công thức mới (cờ new so với phiên trước) + mã rời
+    top; `old` = như vậy cho công thức cũ (chỉ mã có điểm mua); `both` = mã có trong cả hai top n."""
     rows = save_daily(conn, d, light)
     prev = compare_date(conn, d, "prev")
     prev_pos = positions(conn, prev) if prev else {}
     dropped = changes(rows, prev_pos, n)
-    return dict(date=d, light=light, prev=prev, rows=order(rows)[:n], dropped=dropped)
+    old = view(rows, "old")
+    old_prev = positions(conn, prev, eligible_only=True, formula="old") if prev else {}
+    old_dropped = changes(old, old_prev, n, eligible_only=True)
+    top_new, top_old = order(rows)[:n], order(old, True)[:n]
+    olds = {x["sym"] for x in top_old}
+    return dict(date=d, light=light, prev=prev, rows=top_new, dropped=dropped,
+                old=dict(rows=top_old, dropped=old_dropped), both=[x["sym"] for x in top_new if x["sym"] in olds])
 
 
 def light_at(conn, d: str) -> str | None:
@@ -455,7 +492,8 @@ def light_at(conn, d: str) -> str | None:
 
 def backfill_daily(conn, log=print) -> int:
     """Ghi snapshot rank_daily cho mọi phiên đã có trong scan_results mà chưa có snapshot (tăng dần). Trả số phiên."""
-    have = {x[0] for x in conn.execute("SELECT DISTINCT date FROM rank_daily")}
+    have = {x[0] for x in conn.execute("SELECT DISTINCT date FROM rank_daily")} & \
+        {x[0] for x in conn.execute("SELECT DISTINCT date FROM rank_daily_ref")}
     todo = [x[0] for x in conn.execute("SELECT DISTINCT date FROM scan_results ORDER BY date") if x[0] not in have]
     for d in todo:
         rows = save_daily(conn, d, light_at(conn, d))

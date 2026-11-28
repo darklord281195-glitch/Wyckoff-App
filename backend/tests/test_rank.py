@@ -190,6 +190,41 @@ def test_rank_and_daily_changes(tmp_path, monkeypatch):
     assert rank.in_top(conn, ds[-1], 2, last=3)[1] == 3
 
 
+def test_old_formula_in_parallel(tmp_path, monkeypatch):
+    """Công thức cũ 3 mục chạy song song: bảng riêng, snapshot riêng, có trong daily_top / API / kiểm chứng."""
+    conn = _db(tmp_path)
+    ds = _days(conn)[-3:]
+    _scan(conn, monkeypatch, ds)
+    rows = rank.rank(conn, ds[-1], 0, "red")
+    old = rank.view(rows, "old")
+    assert len(old) == len(rows) and not any(x["excluded"] for x in old)
+    assert [x["total"] for x in old] == sorted((x["ref_total"] for x in rows), reverse=True)
+    assert all(any(w["key"] == "light" for w in x["warnings"]) for x in old)
+    monkeypatch.setattr(rank, "MIN_LIQ_BIL", 0)
+    for d in ds[:-1]:
+        rank.save_daily(conn, d, None)
+    top = rank.daily_top(conn, ds[-1], None, n=3)
+    assert conn.execute("SELECT count(*) FROM rank_daily_ref WHERE date=?", (ds[-1],)).fetchone()[0] == len(rows)
+    assert all(x["eligible"] for x in top["old"]["rows"]) and len(top["old"]["rows"]) <= 3
+    assert set(top["both"]) <= {x["sym"] for x in top["rows"]} & {x["sym"] for x in top["old"]["rows"]}
+    pos = rank.positions(conn, ds[-1], 0, True, formula="old")
+    assert pos == rank.positions_of(rank.view(rank.rank(conn, ds[-1], 0), "old"), True)
+    assert rank.in_top(conn, ds[-1], 3, formula="old", eligible_only=True)[1] == len(ds)
+    # API
+    monkeypatch.setattr(api, "conn", conn)
+    monkeypatch.setattr(api, "_TOP_CACHE", {})
+    c = TestClient(api.app)
+    j = c.get(f"/api/top?date={ds[-1]}&min_liq=0&formula=old").json()
+    assert j["formula"] == "old" and j["only"] is True and all(x["eligible"] for x in j["rows"])
+    assert all(x["total"] == x["ref_total"] for x in j["rows"]) and isinstance(j["both"], list)
+    assert c.get(f"/api/top?date={ds[-1]}&min_liq=0").json()["only"] is False
+    # tin Telegram
+    msg = scan.format_message(ds[-1], dict(c=1700, chg=0.1, light="green", text="x"), [], {}, [],
+                              top=dict(rows=[dict(sym="A", total=70)], dropped=[], both=["A"],
+                                       old=dict(rows=[dict(sym="A", total=80), dict(sym="B", total=75, new=True)])))
+    assert "Công thức cũ (3 mục): A 80 · B 75 🆕" in msg and "Cả hai cùng chọn: A" in msg
+
+
 def test_format_message_top():
     market = dict(c=1700, chg=0.5, light="red", text="x")
     base = scan.format_message("2026-11-27", market, [], {}, [])
@@ -256,6 +291,8 @@ def test_rank_bt_small_run_and_daily(tmp_path, monkeypatch, capsys):
     ms = rank_bt.months(picks, vni, 2)
     scored = [x for x in picks if "total" in x]
     assert scored and all(not x["excluded"] and 0 <= x["total"] <= 100 for x in scored)
+    res_old = rank_bt.summarize(rank_bt.months(picks, vni, 2, "old"), 2, 20)
+    assert "Tất cả" in res_old and all(x["eligible"] for x in picks if x["top_ref"])
     res = rank_bt.summarize(ms, 2, 20)
     assert "Tất cả" in res and set(rank_bt.COLS) <= set(res["Tất cả"])
     monkeypatch.setattr("sys.argv", ["rank_bt", "--symbols", ",".join(SYMS), "--from", "2026-01-01", "--to", "2026-06-30"])
