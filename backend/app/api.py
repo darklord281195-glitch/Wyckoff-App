@@ -1,17 +1,18 @@
 """REST API cho web Next.js.  Chạy: .venv\\Scripts\\uvicorn app.api:app --port 8000"""
-import json, threading, datetime as dt
+import json, threading, time, datetime as dt
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .db import connect
-from .config import LOG_DIR
+from .config import LOG_DIR, MIN_LIQ_BIL
 from .core.data import get_ohlcv, fetch_remote, add_atc
 from .core.wyckoff import analyse, trim, ANALYSIS_DAYS
 from .core.market import traffic_light
 from .core.positions import simulate
 from .core.foreign import get_foreign, MAX_SESSIONS as FX_MAX
-from .core.proprietary import get_prop
+from .core.proprietary import get_prop, prop_net, sync_prop
+from .core import rank as rank_mod
 from .core import risk as risk_mod
 from .core import journal as journal_mod
 from .core import forward as forward_mod
@@ -198,6 +199,76 @@ def scan_latest(group: str | None = None, date: str | None = None):
                          banker=(r.get("mcdx") or {}).get("banker"), banker_chg5=(r.get("mcdx") or {}).get("banker_chg5"),
                          banker_label=(r.get("mcdx") or {}).get("label"), banker_tone=(r.get("mcdx") or {}).get("tone")))
     return dict(date=d, rows=rows, groups=GROUP_NAMES, sectors=sectors(conn))
+
+
+_TOP_CACHE: dict = {}             # (phiên, GT tối thiểu) -> (thời điểm, các dòng rank()); hết hạn sau TOP_TTL giây
+_PROP_TRIED: dict = {}            # (mã, phiên) -> lần cuối thử tải tự doanh từ trang Top (tối đa 1 lần/giờ)
+TOP_TTL, PROP_RETRY, PROP_FILL = 600, 3600, 20
+
+
+def _top_rows(d: str, min_liq: float, light: str | None, fresh: bool = False) -> list[dict]:
+    """Bảng xếp hạng phiên d (mọi mã GT ≥ min_liq), nhớ TOP_TTL giây."""
+    hit = _TOP_CACHE.get((d, min_liq))
+    if hit and not fresh and time.time() - hit[0] < TOP_TTL:
+        return hit[1]
+    rows = rank_mod.rank(conn, d, min_liq, light)
+    _TOP_CACHE[(d, min_liq)] = (time.time(), rows)
+    return rows
+
+
+def _fill_prop(d: str, rows: list[dict], min_liq: float, light: str | None) -> list[dict]:
+    """Phiên mới nhất: 20 mã có điểm mua đứng đầu chưa có tự doanh (prop_net None) thì thử tải; có mã mới thì chấm lại."""
+    now = time.time()
+    need = [x["sym"] for x in rows if x["eligible"]][:PROP_FILL]
+    need = [s for s in need if prop_net(conn, s, d) is None and now - _PROP_TRIED.get((s, d), 0) >= PROP_RETRY]
+    if not need:
+        return rows
+    for s in need:
+        _PROP_TRIED[(s, d)] = now
+    try:
+        sync_prop(conn, need, d)
+    except Exception:
+        return rows
+    if any(prop_net(conn, s, d) is not None for s in need):
+        return _top_rows(d, min_liq, light, fresh=True)
+    return rows
+
+
+def _validation():
+    """Kết quả kiểm chứng lịch sử (python -m app.rank_bt) theo giai đoạn; None nếu chưa chạy."""
+    try:
+        rows = [dict(x) for x in conn.execute("SELECT * FROM rank_bt ORDER BY CASE period WHEN 'Tất cả' THEN 9 ELSE 0 END, period")]
+    except Exception:                            # DB cũ chưa có bảng
+        return None
+    return dict(rows=rows, updated=max(x["updated"] or "" for x in rows)) if rows else None
+
+
+@app.get("/api/top")
+def top(date: str | None = None, min_liq: float = Query(MIN_LIQ_BIL, ge=0), n: int = Query(10, ge=1, le=50),
+        all: bool = False, vs: str = Query("prev", pattern="^(prev|week)$")):
+    """Top n tiềm năng phiên `date` (mặc định mới nhất): điểm = trung bình 3 mục Wyckoff · Kỹ thuật & Cơ bản · Dòng tiền.
+    all=false: chỉ mã có điểm mua. vs: so thứ hạng với phiên trước (prev) hoặc 1 tuần trước (week)."""
+    d = _session(date)
+    if not d:
+        raise HTTPException(404, "Chưa có kết quả quét")
+    mk = market(d)
+    rows = _top_rows(d, min_liq, mk["light"])
+    if d == conn.execute("SELECT max(date) FROM scan_results").fetchone()[0]:
+        rows = _fill_prop(d, rows, min_liq, mk["light"])
+    rows = [dict(x) for x in rows]                # changes() gắn thêm trường: không sửa bản trong cache
+    only = not all
+    cmp = rank_mod.compare_date(conn, d, vs)
+    prev_pos = {}
+    if cmp:
+        snap = min_liq == MIN_LIQ_BIL and conn.execute("SELECT 1 FROM rank_daily WHERE date=? LIMIT 1", (cmp,)).fetchone()
+        prev_pos = rank_mod.positions(conn, cmp, min_liq, only,
+                                      rows=None if snap else _top_rows(cmp, min_liq, market(cmp)["light"]))
+    dropped = rank_mod.changes(rows, prev_pos, n, only)
+    cnt, days = rank_mod.in_top(conn, d, n)
+    out = [dict(x, in_top=cnt.get(x["sym"], 0), in_top_of=days) for x in rank_mod.order(rows, only)[:n]]
+    return dict(date=d, light=mk["light"], light_text=mk.get("text"), weights=rank_mod.WEIGHTS, min_liq=min_liq,
+                n_liquid=len(rows), n_eligible=sum(x["eligible"] for x in rows), compare=dict(vs=vs, date=cmp),
+                rows=out, dropped=dropped, validation=_validation())
 
 
 @app.get("/api/signals")
