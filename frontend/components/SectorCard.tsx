@@ -21,7 +21,7 @@ export default function SectorCard({ date, active, onPick }: {
   }), [rows, sort]);
   if (!rows.length) return null;
   const th = (k: Key, label: string) => (
-    <th onClick={() => setSort((s) => ({ k, desc: s.k === k ? !s.desc : k !== "name" }))}>
+    <th className={k === "name" ? undefined : "n"} onClick={() => setSort((s) => ({ k, desc: s.k === k ? !s.desc : k !== "name" }))}>
       {label}{sort.k === k ? (sort.desc ? " ▼" : " ▲") : ""}</th>
   );
 
@@ -29,7 +29,7 @@ export default function SectorCard({ date, active, onPick }: {
     <section className="card">
       <h2>Ngành dẫn dắt</h2>
       <div className="tbl">
-        <table>
+        <table className="right">
           <thead><tr>{th("name", "Ngành")}{th("n", "Số mã")}{th("rs20", "RS20")}{th("rs60", "RS60")}
             {th("pct_d", "% Pha D / sát trần")}{th("fx10", "NN 10p (tỷ)")}</tr></thead>
           <tbody>

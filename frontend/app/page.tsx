@@ -9,6 +9,7 @@ import { api, Market, Row, Signal, GROUP_LABEL, STAGE_LABEL, fullDate, num, pct,
 type SortKey = "sym" | "stage" | "chg" | "rs20" | "rs60" | "liq" | "dist" | "ready" | "rr" | "fx10";
 const isEarly = (r: Row) => (r.stage === "BC" || r.stage === "near") && (r.ready ?? 0) >= 70 && (r.dist ?? -99) >= -8;
 const STAGE_ORDER: Record<string, number> = { D: 0, near: 1, E: 2, BC: 3, below: 4, failed: 5, new: 6 };
+const LIGHT_VN: Record<string, string> = { green: "Đèn xanh", yellow: "Đèn vàng", red: "Đèn đỏ" };
 
 export default function Home() {
   const [market, setMarket] = useState<Market | null>(null);
@@ -86,8 +87,8 @@ export default function Home() {
     });
   }, [rows, group, stage, minLiq, sort, q]);
 
-  const th = (k: SortKey, label: string) => (
-    <th onClick={() => setSort((s) => ({ k, desc: s.k === k ? !s.desc : k !== "sym" && k !== "stage" }))}>
+  const th = (k: SortKey, label: string, n = false) => (
+    <th className={n ? "n" : undefined} onClick={() => setSort((s) => ({ k, desc: s.k === k ? !s.desc : k !== "sym" && k !== "stage" }))}>
       {label}{sort.k === k ? (sort.desc ? " ▼" : " ▲") : ""}
     </th>
   );
@@ -96,16 +97,18 @@ export default function Home() {
 
   return (
     <>
-      <section className="card row" style={{ justifyContent: "space-between" }}>
-        <div className="row">
-          <span className={`light ${market?.light}`} />
-          <div>
-            <div style={{ fontWeight: 600 }}>
-              VNINDEX <span className="mono">{price(market?.c, "pt")}</span>{" "}
-              <span className={(market?.chg ?? 0) >= 0 ? "up" : "down"}>{pct(market?.chg, 2)}</span>
-            </div>
-            <div className="muted">{market?.text}</div>
+      <section className="card hero">
+        <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
+          <div className="row" style={{ gap: 10 }}>
+            <span className="eyebrow">VNINDEX{date ? ` · phiên ${fullDate(date)}` : ""}</span>
+            {market?.light && <span className={`badge ${market.light}`}><span className={`light ${market.light}`} style={{ width: 8, height: 8, boxShadow: "none" }} />
+              {LIGHT_VN[market.light] ?? market.light}</span>}
           </div>
+          <div className="row" style={{ gap: 12, alignItems: "baseline" }}>
+            <span className="idx">{price(market?.c, "pt")}</span>
+            <span className={`chg ${(market?.chg ?? 0) >= 0 ? "up" : "down"}`}>{pct(market?.chg, 2)}</span>
+          </div>
+          <div className="muted" style={{ maxWidth: 780 }}>{market?.text}</div>
         </div>
         <div className="row">
           <label className="muted">Phiên{" "}
@@ -131,7 +134,7 @@ export default function Home() {
       {!old && <IntradayCard />}
 
       <section className="card">
-        <h2>Tín hiệu phiên {date ? fullDate(date) : ""}</h2>
+        <h2>Tín hiệu phiên {date ? fullDate(date) : ""} <span className="muted" style={{ fontWeight: 400, fontSize: 13.5 }}>· {sigs.length}</span></h2>
         {sigs.length === 0 ? <p className="muted">Không có tín hiệu.</p> : (
           <ul className="sig">
             {sigs.map((s) => (
@@ -179,12 +182,12 @@ export default function Home() {
           </div>
         </div>
         <div className="tbl">
-          <table>
+          <table className="right">
             <thead>
               <tr>
-                {th("sym", "Mã")}{th("stage", "Pha")}<th>Giá</th>{th("chg", "%")}{th("ready", "Điểm")}
-                <th>Vùng vào</th><th>Cắt lỗ</th>{th("rr", "Lời/lỗ")}
-                {th("dist", "So trần")}{th("rs20", "RS20")}{th("rs60", "RS60")}{th("liq", "GT (tỷ)")}{th("fx10", "NN 10p (tỷ)")}<th>Ghi chú</th>
+                {th("sym", "Mã")}{th("stage", "Pha")}<th className="n">Giá</th>{th("chg", "%", true)}{th("ready", "Điểm", true)}
+                <th className="n">Vùng vào</th><th className="n">Cắt lỗ</th>{th("rr", "Lời/lỗ", true)}
+                {th("dist", "So trần", true)}{th("rs20", "RS20", true)}{th("rs60", "RS60", true)}{th("liq", "GT (tỷ)", true)}{th("fx10", "NN 10p (tỷ)", true)}<th>Ghi chú</th>
               </tr>
             </thead>
             <tbody>
@@ -214,7 +217,7 @@ export default function Home() {
                   <td className="n">{num(r.liq)}</td>
                   <td className={`n ${r.fx10 == null ? "muted" : r.fx10 >= 0 ? "up" : "down"}`}>
                     {r.fx10 == null ? "–" : (r.fx10 > 0 ? "+" : "") + num(r.fx10, 1)}</td>
-                  <td className="muted" style={{ whiteSpace: "normal" }}>{r.extra}</td>
+                  <td className="muted" style={{ whiteSpace: "normal", minWidth: 220, fontSize: 13 }}>{r.extra}</td>
                 </tr>
               ))}
             </tbody>
