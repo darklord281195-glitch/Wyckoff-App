@@ -152,7 +152,8 @@ def test_rank_and_daily_changes(tmp_path, monkeypatch):
     assert rows[:len(pool)] == pool                                               # nhóm bị loại đứng cuối
     assert [x["total"] for x in pool] == sorted((x["total"] for x in pool), reverse=True)
     assert all(0 <= x["total"] <= 100 and len(x["factors"]) == 3 for x in pool)
-    assert all(x["total"] is None for x in rows if x["excluded"])
+    assert all(x["total"] is None for x in rows if x["excluded"] and not x["setup"])
+    assert all(x["total"] is not None and x["pct_rank"] is None for x in rows if x["excluded"] and x["setup"])
     for x in rows:
         r = json.loads(conn.execute("SELECT data FROM scan_results WHERE date=? AND sym=?", (ds[-1], x["sym"])).fetchone()[0])
         assert x["eligible"] == rank.eligible(r)
@@ -218,11 +219,32 @@ def test_old_formula_in_parallel(tmp_path, monkeypatch):
     assert j["formula"] == "old" and j["only"] is True and all(x["eligible"] for x in j["rows"])
     assert all(x["total"] == x["ref_total"] for x in j["rows"]) and isinstance(j["both"], list)
     assert c.get(f"/api/top?date={ds[-1]}&min_liq=0").json()["only"] is False
+    js = c.get(f"/api/top?date={ds[-1]}&min_liq=0&setup=spring,near,sos,lps,xyz").json()
+    assert js["setup"] == ["lps", "near", "sos", "spring"] and all(x["setup"] for x in js["rows"])
+    assert set(js["n_setup"]) == set(rank.SETUPS)
     # tin Telegram
     msg = scan.format_message(ds[-1], dict(c=1700, chg=0.1, light="green", text="x"), [], {}, [],
                               top=dict(rows=[dict(sym="A", total=70)], dropped=[], both=["A"],
                                        old=dict(rows=[dict(sym="A", total=80), dict(sym="B", total=75, new=True)])))
     assert "Công thức cũ (3 mục): A 80 · B 75 🆕" in msg and "Cả hai cùng chọn: A" in msg
+
+
+def test_setups():
+    P = lambda **k: dict(plan=dict(**k))
+    assert rank.setup_of(dict(tag="D-LPS?")) == ("lps", "D-LPS?")
+    assert rank.setup_of(dict(tag="D-SOS"))[0] == rank.setup_of(dict(tag="D sớm"))[0] == "sos"
+    assert rank.setup_of(dict(tag="sát trần")) == ("near", "sát trần")
+    assert rank.setup_of(dict(tag="B/C", **P(kind="Spring/Test", test_kind="Spring"))) == ("spring", "Spring")
+    assert rank.setup_of(dict(tag="B/C", **P(kind="Spring/Test", test_kind="ST")))[1] == "ST (sắp Spring)"
+    near_sc = dict(tag="B/C", stage="BC", c=10.3, range=dict(sup=10), plan={})
+    assert rank.setup_of(near_sc)[1] == "sát đáy SC (chờ Spring)"
+    assert rank.setup_of(dict(near_sc, c=11)) == (None, None) and rank.setup_of(dict(tag="E?")) == (None, None)
+    rows = [dict(sym="A", total=50, excluded=False, eligible=True, setup="lps"),
+            dict(sym="B", total=70, excluded=True, eligible=True, setup="spring"),
+            dict(sym="C", total=90, excluded=False, eligible=False, setup=None)]
+    assert [x["sym"] for x in rank.order(rows)] == ["A", "C"]                       # mặc định: bỏ nhóm loại
+    assert [x["sym"] for x in rank.order(rows, setups={"lps", "spring"})] == ["B", "A"]   # lọc điểm vào: có cả Spring
+    assert rank.pct_scores([dict(dry=1, vol=1, ready=50)], ref=[dict(dry=0.5, vol=2, ready=50)])[0]["dry"] == 0
 
 
 def test_format_message_top():

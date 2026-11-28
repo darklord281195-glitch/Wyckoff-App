@@ -254,12 +254,13 @@ def factors(r: dict, bars: list[dict]) -> dict:
                 ready=((r.get("plan") or {}).get("ready") or {}).get("score"))
 
 
-def pct_scores(raws: list[dict]) -> list[dict]:
-    """Điểm phần trăm 0–100 của từng thành phần trong nhóm được xếp cùng phiên (hạng trung bình khi bằng nhau; thiếu
-    dữ liệu = 50) và total = TB 3 thành phần, làm tròn."""
+def pct_scores(raws: list[dict], ref: list[dict] | None = None) -> list[dict]:
+    """Điểm phần trăm (0–100) của từng thành phần trong nhóm được xếp cùng phiên (hạng trung bình khi bằng nhau; thiếu
+    dữ liệu = 50) và total = TB 3 thành phần, làm tròn. ref: chấm raws theo thang của nhóm ref (mã bị loại nhưng cần
+    điểm để lọc điểm vào, vd Spring) mà không làm đổi điểm của nhóm."""
     out = [dict() for _ in raws]
     for key, _, sign in FACTORS:
-        vals = sorted(sign * x[key] for x in raws if x.get(key) is not None)
+        vals = sorted(sign * x[key] for x in (raws if ref is None else ref) if x.get(key) is not None)
         for o, x in zip(out, raws):
             if x.get(key) is None or not vals:
                 o[key] = 50.0
@@ -270,6 +271,30 @@ def pct_scores(raws: list[dict]) -> list[dict]:
     for o in out:
         o["total"] = int(round(sum(o[k] for k, _, _ in FACTORS) / len(FACTORS)))
     return out
+
+
+# Điểm vào đẹp theo Wyckoff (bộ lọc trên trang Top): khóa -> nhãn
+SETUPS = {"spring": "Spring / chuẩn bị Spring", "near": "Sát trần", "sos": "SOS phá trần", "lps": "D-LPS"}
+
+
+def setup_of(r: dict) -> tuple[str | None, str | None]:
+    """(loại điểm vào, nhãn chi tiết) của một dòng quét, cùng cách hiểu với bộ lọc trang Tổng quan:
+    spring = kế hoạch Spring/Test (Spring hoặc ST ≤ 15 phiên) hoặc giá sát đáy SC ±5% chưa test (chờ Spring);
+    near = sát trần (chờ SOS); sos = vừa SOS phá trần (D-SOS, D sớm); lps = D-LPS / D-LPS?."""
+    tag, p = r.get("tag") or "", r.get("plan") or {}
+    if tag.startswith("D-LPS"):
+        return "lps", tag
+    if tag in ("D-SOS", "D sớm"):
+        return "sos", tag
+    if tag == "sát trần":
+        return "near", "sát trần"
+    test = _test_kind(r, p)
+    if p.get("kind") == "Spring/Test" and test:
+        return "spring", "Spring" if test == "Spring" else "ST (sắp Spring)"
+    rg = r.get("range") or {}
+    if r.get("stage") in ("BC", "below", "near") and rg.get("sup") and r.get("c") and abs(r["c"] / rg["sup"] - 1) <= 0.05:
+        return "spring", "sát đáy SC (chờ Spring)"
+    return None, None
 
 
 def factor_items(raw: dict, sc: dict) -> list[dict]:
@@ -340,7 +365,9 @@ def rank(conn, d: str, min_liq: float = MIN_LIQ_BIL, light: str | None = None) -
         if lw:
             s["warnings"].append(_item("light", "Đèn", lw, 0, 0, "bad"))
             ref_warn.append(_item("light", "Đèn", lw, 0, 0, "bad"))
+        su, su_label = setup_of(r)
         rows.append(dict(sym=sym, name=info.get("name"), icb_name=info.get("icb_name"), floor=info.get("floor"),
+                         setup=su, setup_label=su_label,
                          c=r.get("c"), chg=r.get("chg"), tag=r.get("tag"), stage=r.get("stage"), plan_kind=p.get("kind"),
                          entry_lo=p.get("entry_lo"), entry_hi=p.get("entry_hi"), stop=p.get("stop"), rr=p.get("rr"),
                          in_zone=p.get("in_zone"),
@@ -355,10 +382,18 @@ def rank(conn, d: str, min_liq: float = MIN_LIQ_BIL, light: str | None = None) -
         x["total"], x["parts"] = sc["total"], {k: sc[k] for k, _, _ in FACTORS}
         x["factors"] = factor_items(x["raw"], sc)
         x["highlights"] = [it for it in x["factors"] if it["tone"] == "good"]
+    # mã bị loại nhưng là điểm vào (vd Spring ở Pha B/C): chấm theo thang của nhóm để lọc được, vẫn không vào bảng mặc định
+    extra = [x for x in rows if x["excluded"] and x["setup"]]
+    for x, sc in zip(extra, pct_scores([x["raw"] for x in extra], ref=[x["raw"] for x in pool])):
+        x["total"], x["parts"] = sc["total"], {k: sc[k] for k, _, _ in FACTORS}
+        x["factors"] = factor_items(x["raw"], sc)
+        x["highlights"] = [it for it in x["factors"] if it["tone"] == "good"]
     rows.sort(key=_sort_key)
     el = [x["total"] for x in pool]
     for x in rows:
         x["pct_rank"] = round(100 * sum(v < x["total"] for v in el) / len(el)) if el and x["total"] is not None else None
+        if x["excluded"]:
+            x["pct_rank"] = None
     return rows
 
 
@@ -406,14 +441,18 @@ def compare_date(conn, d: str, vs: str = "prev") -> str | None:
     return ds[-1] if ds else None
 
 
-def order(rows: list[dict], eligible_only: bool = False) -> list[dict]:
-    """Nhóm được xếp (bỏ EXCLUDE_TAGS), theo thứ tự của rows; eligible_only: chỉ mã có điểm mua."""
+def order(rows: list[dict], eligible_only: bool = False, setups=None) -> list[dict]:
+    """Nhóm được xếp (bỏ EXCLUDE_TAGS), theo thứ tự của rows; eligible_only: chỉ mã có điểm mua.
+    setups: chỉ các loại điểm vào này (kể cả mã bị loại nhưng có điểm, vd Spring), xếp theo điểm giảm dần."""
+    if setups:
+        xs = [x for x in rows if x.get("setup") in setups and x["total"] is not None and (x["eligible"] or not eligible_only)]
+        return sorted(xs, key=lambda x: -x["total"])          # sort ổn định: bằng điểm giữ thứ tự cũ
     return [x for x in rows if not x["excluded"] and (x["eligible"] or not eligible_only)]
 
 
-def positions_of(rows: list[dict], eligible_only: bool = False) -> dict:
+def positions_of(rows: list[dict], eligible_only: bool = False, setups=None) -> dict:
     """{mã: hạng (từ 1)} theo thứ tự của rows (đã sắp xếp)."""
-    return {x["sym"]: i for i, x in enumerate(order(rows, eligible_only), 1)}
+    return {x["sym"]: i for i, x in enumerate(order(rows, eligible_only, setups), 1)}
 
 
 def positions(conn, d: str, min_liq: float = MIN_LIQ_BIL, eligible_only: bool = False, rows=None,
@@ -429,10 +468,10 @@ def positions(conn, d: str, min_liq: float = MIN_LIQ_BIL, eligible_only: bool = 
     return positions_of(view(rows if rows is not None else rank(conn, d, min_liq), formula), eligible_only)
 
 
-def changes(cur_rows: list[dict], prev_pos: dict, n: int, eligible_only: bool = False) -> list[dict]:
+def changes(cur_rows: list[dict], prev_pos: dict, n: int, eligible_only: bool = False, setups=None) -> list[dict]:
     """Gắn prev_pos / new (không nằm trong top n trước đó) vào từng dòng của cur_rows (mọi mã đủ thanh khoản, đã sắp
     xếp). Trả các mã rời top n: dict(sym, prev_pos, pos, total) hoặc dict(sym, prev_pos, reason)."""
-    ordered = order(cur_rows, eligible_only)
+    ordered = order(cur_rows, eligible_only, setups)
     for x in ordered:
         x["prev_pos"] = prev_pos.get(x["sym"])
         x["new"] = bool(prev_pos) and (x["prev_pos"] is None or x["prev_pos"] > n)
@@ -446,8 +485,9 @@ def changes(cur_rows: list[dict], prev_pos: dict, n: int, eligible_only: bool = 
         if s in pos:
             dropped.append(dict(sym=s, prev_pos=p, pos=pos[s][0], total=pos[s][1]["total"]))
         else:
-            why = ("không còn đủ thanh khoản" if s not in every else f"nay ở nhóm loại ({every[s]['tag']})"
-                   if every[s]["excluded"] else "không còn điểm mua")
+            why = ("không còn đủ thanh khoản" if s not in every else
+                   f"không còn là điểm vào ({every[s]['tag']})" if setups else
+                   f"nay ở nhóm loại ({every[s]['tag']})" if every[s]["excluded"] else "không còn điểm mua")
             dropped.append(dict(sym=s, prev_pos=p, reason=why))
     return dropped
 

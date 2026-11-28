@@ -21,6 +21,9 @@ const LIGHT_VN: Record<string, string> = { green: "Đèn xanh", yellow: "Đèn v
 const N_KEY = "wyckoff.top.n";                                   // localStorage: số mã chọn xem (10/20/30)
 const F_KEY = "wyckoff.top.formula";                             // localStorage: công thức đang xem (new / old)
 type Formula = "new" | "old";
+const S_KEY = "wyckoff.top.setup";                               // localStorage: bộ lọc điểm vào
+const ALL4 = "spring,near,sos,lps";
+const SETUP_ICON: Record<string, string> = { spring: "🌱", near: "⏳", sos: "🚀", lps: "🎯" };
 
 const TIPS: Record<string, string> = {
   "Hạng": "Thứ hạng theo điểm. ▲▼ = lên/xuống bao nhiêu bậc so với phiên đang so sánh; 🆕 = trước đó chưa nằm trong top.",
@@ -135,6 +138,7 @@ export default function TopPage() {
   const [liqIn, setLiqIn] = useState("10");
   const [onlyBuy, setOnlyBuy] = useState(false);
   const [formula, setFormula] = useState<Formula>("new");
+  const [setup, setSetup] = useState("");                        // "" = mọi mã; "spring,near,..." = chỉ các điểm vào này
   const [open, setOpen] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -143,6 +147,7 @@ export default function TopPage() {
     try {
       const v = Number(localStorage.getItem(N_KEY)); if ([10, 20, 30].includes(v)) setN(v);
       if (localStorage.getItem(F_KEY) === "old") { setFormula("old"); setOnlyBuy(true); }
+      setSetup(localStorage.getItem(S_KEY) ?? "");
     } catch { /* chế độ riêng tư */ }
     api<string[]>("/api/scan/dates").then(setDates).catch(() => {});
   }, []);
@@ -153,16 +158,17 @@ export default function TopPage() {
   useEffect(() => {
     if (sel == null) return;
     setLoading(true);
-    const q = new URLSearchParams({ n: String(n), vs, min_liq: String(minLiq), all: String(!onlyBuy), formula });
+    const q = new URLSearchParams({ n: String(n), vs, min_liq: String(minLiq), all: String(!onlyBuy), formula, setup });
     if (sel) q.set("date", sel);
     api<TopResp>("/api/top?" + q).then((d) => { setData(d); setErr(null); }).catch((e) => setErr(String(e))).finally(() => setLoading(false));
-  }, [sel, n, vs, minLiq, onlyBuy, formula]);
+  }, [sel, n, vs, minLiq, onlyBuy, formula, setup]);
 
   /** đổi công thức: mỗi công thức có bộ lọc mặc định riêng (mới: mọi mã; cũ: chỉ mã có điểm mua, như trước) */
   const pickF = (f: Formula) => {
     setFormula(f); setOnlyBuy(f === "old"); setOpen(null);
     try { localStorage.setItem(F_KEY, f); } catch { /* bỏ qua */ }
   };
+  const pickS = (v: string) => { setSetup(v); setOpen(null); try { localStorage.setItem(S_KEY, v); } catch { /* bỏ qua */ } };
   const pickN = (v: number) => { setN(v); try { localStorage.setItem(N_KEY, String(v)); } catch { /* bỏ qua */ } };
   const pick = (d: string) => {
     const v = d === dates[0] ? "" : d;
@@ -229,6 +235,13 @@ export default function TopPage() {
             <button className={vs === "prev" ? "on" : ""} onClick={() => setVs("prev")}>Phiên trước</button>
             <button className={vs === "week" ? "on" : ""} onClick={() => setVs("week")}>1 tuần trước</button>
           </div>
+          <select id="setup" className="btn" value={setup} onChange={(e) => pickS(e.target.value)} style={{ width: 230 }}
+            title="Chỉ xếp hạng trong các điểm vào Wyckoff: Spring / chuẩn bị Spring (ST, sát đáy SC), sát trần (chờ SOS), vừa SOS phá trần, D-LPS">
+            <option value="">Điểm vào: mọi mã</option>
+            <option value={ALL4}>⭐ Cả 4 điểm vào đẹp ({d ? Object.values(d.n_setup).reduce((a, b) => a + b, 0) : "…"})</option>
+            {Object.entries(d?.setups ?? { spring: "Spring / chuẩn bị Spring", near: "Sát trần", sos: "SOS phá trần", lps: "D-LPS" }).map(([k, v]) =>
+              <option key={k} value={k}>{SETUP_ICON[k]} {v} ({d?.n_setup[k] ?? "…"})</option>)}
+          </select>
           <label className="muted" style={{ whiteSpace: "nowrap" }}>GT ≥ <input id="minliq" type="number" min={0} value={liqIn}
             onChange={(e) => setLiqIn(e.target.value)} style={{ width: 70 }} /> tỷ</label>
           <label className="muted" style={{ whiteSpace: "nowrap", display: "inline-flex", gap: 6, alignItems: "center" }}>
@@ -263,7 +276,9 @@ export default function TopPage() {
                         {num(r.parts?.[f.k] ?? 0, 0)}<Bar v={r.parts?.[f.k] ?? 0} color={f.color} w={48} /></div></td>
                     ))}
                     {showIn && <td className="n">{r.in_top}/{r.in_top_of} <span className="muted" style={{ fontFamily: "var(--font)", fontSize: 11.5 }}>phiên</span></td>}
-                    <td><span className={`pill ${r.stage}`}>{r.tag}</span></td>
+                    <td><span className={`pill ${r.stage}`}>{r.tag}</span>
+                      {r.setup && <div style={{ fontSize: 11.5, marginTop: 3, whiteSpace: "nowrap" }} title="Loại điểm vào Wyckoff">
+                        {SETUP_ICON[r.setup]} {r.setup_label}</div>}</td>
                     <td className="n" title={r.plan_kind ?? ""}>{r.entry_lo ? `${price(r.entry_lo)}–${price(r.entry_hi)}`
                       : <span className="muted" style={{ fontFamily: "var(--font)", fontSize: 12 }}>chưa có điểm mua</span>}{r.in_zone ? " 🎯" : ""}</td>
                     <td className="n down">{price(r.stop)}</td>
@@ -290,6 +305,10 @@ export default function TopPage() {
         {d && <p style={{ margin: 0, fontSize: 13.5 }}><b>Cả hai công thức cùng chọn:</b>{" "}
           {d.both.length ? d.both.map((s, i) => <span key={s}>{i ? " · " : ""}<Link href={`/symbol/${s}${at}`}><b>{s}</b></Link></span>)
             : <span className="muted">không có mã nào chung trong top {n}</span>}</p>}
+        {d && d.setup.length > 0 && <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
+          Đang lọc điểm vào: {d.setup.map((k) => d.setups[k]).join(", ")}{formula === "new" ? " · mã Spring ở Pha B/C / dưới hỗ trợ được chấm theo thang của nhóm được xếp" : ""}.
+          Kiểm chứng 2019–2026 (top 10 trong 4 điểm vào, vượt TB thị trường mỗi 20 phiên): công thức mới +0,71% / +0,98%, công thức cũ −0,42% / +1,32% (2019–23 / 2024–26).
+          Theo nhóm: sát trần và SOS phá trần tốt hơn TB ở cả hai giai đoạn; Spring và D-LPS đứng riêng thì không hơn TB.</p>}
         {d && d.compare.date && d.dropped.length > 0 && <p style={{ margin: 0, fontSize: 13.5 }}>
           <b>Rời top so với {day(d.compare.date)}:</b>{" "}
           {d.dropped.map((x, i) => <span key={x.sym}>{i ? " · " : ""}<Link href={`/symbol/${x.sym}${at}`}><b>{x.sym}</b></Link>{" "}

@@ -150,6 +150,8 @@ export type TopRow = {
   target: { k: string; price: number; upside: number } | null; liq: number; eligible: boolean; total: number; pct_rank: number | null;
   /** 3 thành phần tính điểm (pts = phần trăm 0–100 trong nhóm được xếp); excluded = nhóm bị loại (không có điểm) */
   factors: TopItem[]; excluded: boolean; parts: { dry: number; vol: number; ready: number } | null;
+  /** loại điểm vào Wyckoff (spring / near / sos / lps) và nhãn chi tiết, null nếu không thuộc loại nào */
+  setup: string | null; setup_label: string | null;
   /** 3 mục cũ: chỉ để tham khảo, không tính điểm; ref_total = điểm theo công thức cũ */
   pillars: { wyckoff: TopPillar; tech: TopPillar; flow: TopPillar }; ref_total: number; highlights: TopItem[]; warnings: TopItem[];
   prev_pos: number | null; new: boolean; in_top: number; in_top_of: number;
@@ -164,6 +166,8 @@ export type TopResp = {
   n_liquid: number; n_pool: number; n_eligible: number; compare: { vs: "prev" | "week"; date: string | null }; rows: TopRow[];
   /** formula: công thức đang xem (old = 3 mục cũ chạy song song); only: chỉ mã có điểm mua; both: mã có trong top của cả hai */
   formula: "new" | "old"; only: boolean; both: string[];
+  /** bộ lọc điểm vào: tên các loại, loại đang lọc, số mã mỗi loại */
+  setups: Record<string, string>; setup: string[]; n_setup: Record<string, number>;
   dropped: { sym: string; prev_pos: number; pos?: number; total?: number; reason?: string }[];
   validation: { rows: RankBt[]; updated: string } | null;
 };
