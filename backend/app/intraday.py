@@ -48,7 +48,7 @@ def check(bar, stop=None, target=None, plan=None):
     return out
 
 
-def checklist(plan: dict | None, R: list[dict], res: float | None = None) -> list[dict]:
+def checklist(plan: dict | None, R: list[dict], res: float | None = None, full_day: bool = False) -> list[dict]:
     """Từng điều kiện của "Kịch bản mua đẹp" (luật skill wyckoff) với nến hôm nay R[-1], theo thứ tự kiểm tra:
     [dict(key, label, ok, detail, why)]; ok = True / False / None (không áp dụng cho loại kế hoạch này);
     why = lý do không đạt (good_setup báo mục False đầu tiên). Một nguồn luật cho tự mua thử nghiệm và bảng kiểm tra."""
@@ -81,14 +81,17 @@ def checklist(plan: dict | None, R: list[dict], res: float | None = None) -> lis
         add("turn", "Phiên quay đầu", None, f"không cần với {p['kind']}")
     vx = b["v"] / v20 if v20 else 9
     vol = f"KL x{num(vx, 2)} TB20 ({num(b['v'], 2)} / {num(v20, 2)} triệu cp)"
+    # ngưỡng KL: lúc 14h10–14h29 đã khớp ~85–90% KL ngày -> 0,85 lần TB20; phiên đã đóng (KL cả ngày) -> 1 lần TB20
+    lim = 1.0 if full_day else VOL_SO_FAR
+    now_txt = "cả ngày" if full_day else "lúc này"
     if p["kind"] == "Phá trần (SOS)":
         add("above", "Giá trên trần", not res or b["c"] > res, f"trần {_p(res)}" if res else "–",
             f"chưa vượt trần {_p(res)}" if res else "")
-        add("vol", f"KL ≥ x{num(VOL_SO_FAR * 1.5, 2)} TB20 (phiên phá trần)", vx >= VOL_SO_FAR * 1.5, vol,
+        add("vol", f"KL {now_txt} ≥ x{num(lim * 1.5, 2)} TB20 (phiên phá trần)", vx >= lim * 1.5, vol,
             f"KL x{num(vx, 2)} chưa đủ lớn cho phiên phá trần")
     else:
-        add("vol", f"KL đã khớp < x{num(VOL_SO_FAR, 2)} TB20 (cung cạn)", vx < VOL_SO_FAR, vol,
-            f"KL x{num(vx, 2)} đã cao (cần dưới x{num(VOL_SO_FAR, 2)} lúc này)")
+        add("vol", f"KL {now_txt} < x{num(lim, 2)} TB20 (cung cạn)", vx < lim, vol,
+            f"KL x{num(vx, 2)} đã cao (cần dưới x{num(lim, 2)} {now_txt})")
     if p.get("selloff"):          # sau phiên bán mạnh: cần ≥ 2 phiên lùi KL < TB20, tính cả hôm nay
         after = [x for x in R if x["d"] > p["selloff"]]
         ok = len(after) >= 2 and not any(x["v"] >= v20 for x in after)
@@ -149,11 +152,11 @@ def live_check(conn, sym: str, fetch=fetch_remote, now: dt.datetime | None = Non
         raise RuntimeError(f"{sym}: chưa đủ dữ liệu lịch sử")
     a = analyse(trim(R), IDX, (listing(conn).get(sym) or {}).get("floor") or "UPCOM") or {}
     p = a.get("plan") or {}
-    items = checklist(p, R, (a.get("range") or {}).get("res"))
-    code, text = verdict(items, light, bar["c"], p)
     today = now.date().isoformat()
     t = now.time()
     live = bar["d"] == today and now.weekday() < 5 and dt.time(9, 0) <= t <= dt.time(14, 45)
+    items = checklist(p, R, (a.get("range") or {}).get("res"), full_day=not live)   # phiên đã đóng: so KL cả ngày
+    code, text = verdict(items, light, bar["c"], p)
     note = ("Phiên đang chạy: KL so với TB20 chỉ chuẩn trong 14h10–14h29 (lúc đó đã khớp ~85–90% KL ngày)."
             if live and not AUTO[0] <= t <= AUTO[1] else
             "Đúng giờ đặt lệnh: đặt LO 14h15–14h29; giá ATC có thể khác lúc này." if live else

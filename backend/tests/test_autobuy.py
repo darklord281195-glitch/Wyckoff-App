@@ -89,6 +89,8 @@ def test_checklist_is_the_rule_source_of_good_setup():
     items = it.checklist(PLAN, R)
     assert [x["key"] for x in items] == ["plan", "zone", "rr", "upper", "turn", "vol", "selloff"]
     assert all(x["ok"] is not False for x in items) and it.good_setup(PLAN, R)[0]
+    vol = lambda its: next(x for x in its if x["key"] == "vol")["ok"]
+    assert not vol(it.checklist(PLAN, bars(today=dict(v=0.9)))) and vol(it.checklist(PLAN, bars(today=dict(v=0.9)), full_day=True))
     weak = bars(today=dict(c=10.0, h=10.3))                                   # nửa dưới biên độ + chưa tăng giá
     bad = it.checklist(PLAN, weak)
     assert [x["key"] for x in bad if x["ok"] is False] == ["upper", "turn"]

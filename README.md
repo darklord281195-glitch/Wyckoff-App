@@ -111,7 +111,7 @@ Thẻ đầu trang mã (khi kế hoạch có vùng mua và đang xem phiên mớ
 - có điểm mua · giá trong vùng mua (vượt cận trên = không mua đuổi) · lời/lỗ ≥ 2 · giá ở nửa trên biên độ phiên · phiên quay đầu (LPS, Backup) · KL đã khớp < 0,85 lần TB20 (Phá trần: trên trần và KL ≥ 0,85 × 1,5 lần) · đủ 2 phiên lùi KL thấp nếu vừa có phiên bán mạnh.
 - **Kết luận**: Nên vào (bước 1 = 1/3) · Nên vào với ½ rủi ro (đèn vàng) · Đạt nhưng đèn đỏ: không mở lệnh mới · Chờ (lý do đầu tiên chưa đạt) · Không vào (không có điểm mua, lời/lỗ < 2, đã vượt cận trên).
 - **Khối lượng gợi ý** theo vốn, % rủi ro/lệnh (thẻ Rủi ro danh mục) × hệ số đèn, khoảng cắt lỗ, lô 100; bước 1 = 1/3; tổng rủi ro danh mục sau khi mua đủ so với ngưỡng.
-- Tự kiểm tra lại mỗi phút trong giờ giao dịch; có nút **Kiểm tra lại**. Ngoài giờ thì theo nến ngày gần nhất (để chuẩn bị cho phiên tới). KL so với TB20 chỉ chuẩn trong 14h10–14h29.
+- Tự kiểm tra lại mỗi phút trong giờ giao dịch; có nút **Kiểm tra lại**. Ngoài giờ thì theo nến ngày gần nhất (để chuẩn bị cho phiên tới) và so **KL cả ngày** với 1 lần TB20 (Phá trần 1,5 lần), tương đương ngưỡng 0,85 lần lúc 14h20. Trong phiên, KL so với TB20 chỉ chuẩn trong 14h10–14h29.
 - Cùng một nguồn luật với sổ lệnh thử nghiệm (`intraday.checklist`, `good_setup` gọi lại nó), API `GET /api/symbols/{mã}/check`.
 
 ### Sổ lệnh thử nghiệm: tự mua lúc 14h10–14h29 (`intraday.auto_buy`, `core/paper.py`)
