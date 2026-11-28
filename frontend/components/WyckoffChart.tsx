@@ -4,6 +4,7 @@ import {
   createChart, ColorType, CrosshairMode, LineStyle, IChartApi, ISeriesApi, SeriesMarker, Time,
 } from "lightweight-charts";
 import { api, num, pct, fullDate, price as fmtPrice, type Analysis, type Ohlcv, type Plan, type PlanStats } from "@/lib/api";
+import { channelWyckoff } from "@/lib/channelWyckoff";
 
 const css = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 type Tf = "H" | "D" | "3D" | "W";
@@ -151,7 +152,8 @@ function chGeom(c: Channel, idx: (q: ChPt) => number | null) {
   const ia = idx(c.a), ib = idx(c.b);
   if (ia == null || ib == null || ia === ib) return null;
   const k = (c.b.p - c.a.p) / (ib - ia);
-  return { i0: Math.min(ia, ib), k, at: (i: number) => c.a.p + k * (i - ia) };
+  const at = (i: number) => c.a.p + k * (i - ia);
+  return { i0: Math.min(ia, ib), k, at, lo: (i: number) => Math.min(at(i), at(i) + c.dp), hi: (i: number) => Math.max(at(i), at(i) + c.dp) };
 }
 
 const IND_KEY = "wyckoff.indicators";                      // localStorage: bật/tắt RSI/MACD
@@ -278,6 +280,7 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
 
   // ---- kênh song song
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const autoMarks = useRef<SeriesMarker<Time>[]>([]);        // mốc Wyckoff tự dò (ẩn khi có kênh để không chồng nhãn)
   const [chartVer, setChartVer] = useState(0);              // tăng mỗi lần biểu đồ được tạo lại -> vẽ lại kênh
   const chKey = `${CH_KEY}.${sym ?? "_"}.${tf}`;
   const [channels, setChannels] = useState<Channel[]>([]);
@@ -319,7 +322,6 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
     const ch = { a: toPt(a), b: toPt(b), dp: q.p - base };
     saveCh([...channels, ch]);
     setDrawing(null);
-    analyseCh(ch);                                                // vẽ xong: phân tích Wyckoff trong khoảng của kênh
   };
   /** nến của khung đang xem -> ngày giao dịch (tuần / 3 ngày: phiên đầu của nến) */
   const dayOf = (w: string) => {
@@ -334,7 +336,7 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
     if (from < to) onRange(from, to);
   };
   useEffect(() => {
-    const chart = chartRef.current, rows = view[tf].rows, n = rows.length;
+    const chart = chartRef.current, rows = view[tf].rows, n = rows.length, muted = css("--muted");
     if (!chart || !n || !channels.length) return;
     const ext = CH_EXT[tf], fut = futureDays(rows[n - 1].d, ext, tf), end = n - 1 + ext;
     const time = (i: number) => T(i < n ? rows[i].d : fut[i - n]);
@@ -348,8 +350,42 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
         s.setData([{ time: time(g.i0), value: g.at(g.i0) + off }, { time: time(end), value: g.at(end) + off }]);
         made.push(s);
       });
+      // Wyckoff theo kênh: nhãn từng lượt chạm cạnh + dải màu từng pha
+      const w = channelWyckoff(rows, g.i0, g.lo, g.hi);
+      if (!w) return;
+      const hidden = { lineVisible: false, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        autoscaleInfoProvider: () => null } as const;
+      const span = rows.slice(g.i0);
+      const lows = chart.addLineSeries(hidden), highs = chart.addLineSeries(hidden);
+      lows.setData(span.map((r) => ({ time: T(r.d), value: r.l })));
+      highs.setData(span.map((r) => ({ time: T(r.d), value: r.h })));
+      const mk = (pos: "low" | "high") => w.events.filter((e) => e.pos === pos).map((e) => ({
+        time: T(rows[e.i].d), position: pos === "low" ? "belowBar" : "aboveBar", color: CH_COLOR,
+        shape: pos === "low" ? "arrowUp" : "arrowDown",
+        text: e.k + (e.vx != null && tf === "D" ? ` x${e.vx.toLocaleString("vi-VN")}` : ""),
+      }) as SeriesMarker<Time>);
+      const phaseMk = w.phases.map((p) => ({ time: T(rows[p.i0].d), position: "aboveBar", color: muted, shape: "square",
+        size: 0.5, text: `Pha ${p.ph}` }) as SeriesMarker<Time>);
+      const byTime = (a: SeriesMarker<Time>, b: SeriesMarker<Time>) => String(a.time) < String(b.time) ? -1 : String(a.time) > String(b.time) ? 1 : 0;
+      lows.setMarkers(mk("low").sort(byTime));
+      highs.setMarkers([...mk("high"), ...phaseMk].sort(byTime));
+      made.push(lows, highs);
+      candleRef.current?.setMarkers([]);
+      w.phases.forEach((p, q) => {
+        const col = (p.ph === "Gãy" || p.ph === "Hỏng" ? "#ef4444" : CH_COLOR) + (q % 2 ? "1f" : "10");
+        const band = chart.addAreaSeries({ priceScaleId: "chph", lastValueVisible: false, priceLineVisible: false,
+          crosshairMarkerVisible: false, lineColor: "transparent", topColor: col, bottomColor: col,
+          autoscaleInfoProvider: () => ({ priceRange: { minValue: 0, maxValue: 1 } }) });
+        chart.priceScale("chph").applyOptions({ scaleMargins: { top: 0, bottom: 0 }, visible: false });
+        band.setData(rows.slice(p.i0, p.i1 + 1).map((r) => ({ time: T(r.d), value: 1 })));
+        made.push(band as unknown as ISeriesApi<"Line">);
+      });
     });
-    return () => { if (chartRef.current === chart) made.forEach((s) => { try { chart.removeSeries(s); } catch { /* đã gỡ */ } }); };
+    return () => {
+      if (chartRef.current !== chart) return;
+      made.forEach((s) => { try { chart.removeSeries(s); } catch { /* đã gỡ */ } });
+      candleRef.current?.setMarkers(autoMarks.current);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chartVer, channels]);
   /** nét xem trước khi đang vẽ (px trong khung) */
@@ -509,6 +545,7 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
         color: down, shape: e.pos === "high" ? "arrowDown" : "arrowUp", text: e.k,
       }));
     candles.setMarkers(markers.sort((a, b) => (a.time < b.time ? -1 : 1)));
+    autoMarks.current = markers;
 
     // kịch bản: đổi số phiên -> ngày (ngày giao dịch thật nếu có nến sau phiên phân tích, hết thì sinh thứ 2–6)
     const iA = analysis ? rows.findIndex((r) => r.d === analysis.d) : -1;
@@ -743,14 +780,15 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
             const v1 = g.at(n - 1), v2 = v1 + c.dp, lo = Math.min(v1, v2), hi = Math.max(v1, v2), h = hi - lo;
             const pos = h > 0 ? (c0 - lo) / h * 100 : 50;
             const slope = v1 ? g.k / v1 * 20 * 100 : 0;
-            const up = hi - c0, dn = c0 - lo, rr = dn > 0 ? up / dn : null;
+            const stop = lo * 0.97;                                      // cắt lỗ dưới cạnh dưới 3% (tránh rũ bỏ / Spring)
+            const up = hi - c0, dn = c0 - stop, rr = dn > 0 ? up / dn : null;
             const span = n - 1 - g.i0;
             const [tone, read] = pos > 100
               ? ["var(--up)", `Đã bứt khỏi cạnh trên. Bứt thật khi đóng cửa trên ${P(hi)} với KL lớn rồi lùi về test cạnh trên mà giữ được (giống LPS/Backup); mục tiêu đo theo độ cao kênh ${P(hi + h)} (${chg(hi + h)}).`]
               : pos < 0
               ? ["var(--down)", `Đã thủng cạnh dưới. Nếu không lấy lại được ${P(lo)} trong vài phiên (Spring thất bại) thì kênh hỏng; mục tiêu giảm đo theo độ cao kênh ${P(lo - h)} (${chg(lo - h)}).`]
               : pos <= 25
-              ? ["var(--up)", `Giá sát cạnh dưới: vùng mua theo kênh, cắt lỗ khi đóng cửa dưới ${P(lo)} (${chg(lo)}). Cần thấy KL cạn khi chạm cạnh dưới hoặc một phiên rũ bỏ (Spring) rồi bật lại.`]
+              ? ["var(--up)", `Giá sát cạnh dưới: vùng mua theo kênh, cắt lỗ ${P(stop)} (${chg(stop)}, dưới cạnh dưới 3% để chừa chỗ cho Spring). Cần thấy KL cạn khi chạm cạnh dưới hoặc một phiên rũ bỏ (Spring) rồi bật lại.`]
               : pos >= 75
               ? ["var(--warn)", `Giá sát cạnh trên: lời/lỗ kém nếu mua lúc này. Chờ bứt cạnh trên có KL (SOS) rồi mua nhịp lùi, hoặc chờ về lại gần cạnh dưới.`]
               : ["var(--muted)", `Giá ở giữa kênh: chưa phải điểm mua đẹp, chờ về gần cạnh dưới hoặc bứt cạnh trên.`];
@@ -769,15 +807,30 @@ export default function WyckoffChart({ sym, data, analysis, unit, sel, onRange, 
               </div>
               <div>
                 <b>Tiềm năng:</b> lên cạnh trên <b className="up">{chg(hi)}</b> · về cạnh dưới <b className="down">{chg(lo)}</b>
-                {rr != null && up > 0 && <> · lời/lỗ nếu mua {P(c0)} <b className={rr >= 2 ? "up" : rr < 1 ? "down" : undefined}>{num(rr, 1)}</b></>}
+                {rr != null && up > 0 && <> · lời/lỗ nếu mua {P(c0)}, cắt lỗ {P(stop)} <b className={rr >= 2 ? "up" : rr < 1 ? "down" : undefined}>{num(rr, 1)}</b></>}
                 {" "}· bứt cạnh trên: mục tiêu {P(hi + h)} ({chg(hi + h)})
               </div>
               <div style={{ color: tone }}>{read}</div>
+              {(() => {
+                const w = channelWyckoff(rows, g.i0, g.lo, g.hi);
+                if (!w) return null;
+                const col = { good: "var(--up)", warn: "var(--warn)", bad: "var(--down)", info: "var(--fg)" }[w.tone];
+                return <div style={{ marginTop: 4, paddingTop: 4, borderTop: "1px dashed var(--border, #ddd)" }}>
+                  <b>Wyckoff theo kênh:</b> {w.title} · đang ở <b style={{ color: col }}>{w.now.length === 1 ? "Pha " + w.now : w.now}</b>
+                  {" "}<span className="muted">({w.phases.map((p) => `${p.ph.length === 1 ? "Pha " + p.ph : p.ph} từ ${fullDate(rows[p.i0].d.slice(0, 10))}`).join(" · ")})</span>
+                  <div style={{ color: col }}>{w.advice}</div>
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    {w.events.map((e) => `${e.k} ${fullDate(rows[e.i].d.slice(0, 10))}${e.vx != null ? ` (KL x${num(e.vx, 1)})` : ""}`).join(" → ")}
+                  </div>
+                </div>;
+              })()}
             </div>;
           })}
           {channels.length > 1 && <div><button className="btn" style={{ fontSize: 12 }} onClick={() => saveCh([])}>Xóa hết kênh</button></div>}
-          <div className="muted" style={{ fontSize: 12 }}>Tiềm năng đo theo kênh bạn vẽ (mục tiêu bứt = cạnh trên + độ cao kênh), chỉ để tham khảo;
-            pha, kế hoạch và mục tiêu Nhân–Quả theo Wyckoff xem ở phần phân tích bên dưới.</div>
+          <div className="muted" style={{ fontSize: 12 }}>Nhãn Wyckoff theo kênh: mỗi lần giá chạm / xuyên cạnh kênh được gắn nhãn
+            (mở đầu ở cạnh dưới = tích lũy: SC, AR, ST, Spring, Test, UT, SOS, LPS; ở cạnh trên = phân phối: BC, AR, ST, UTAD, SOW, LPSY),
+            xNN = KL so với TB 20 phiên. Luật đơn giản hóa, chưa backtest: dùng để đọc nhanh, không phải tín hiệu mua.
+            Mục tiêu bứt = cạnh trên + độ cao kênh. Kế hoạch giao dịch: bấm &quot;Phân tích Wyckoff khoảng này&quot;.</div>
         </div>;
       })()}
       {showInd && <div ref={box2} style={{ width: "100%", height: 220, marginTop: 4 }} />}
