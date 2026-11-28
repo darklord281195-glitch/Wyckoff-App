@@ -281,7 +281,9 @@ class WatchItem(BaseModel):
 
 @app.get("/api/watchlist")
 def wl_get():
-    return [dict(r) for r in conn.execute("SELECT sym, note, added FROM watchlist ORDER BY sym")]
+    """Watchlist; held = đang có lệnh mở trong Danh mục (tính lúc đọc, không lưu thành ghi chú)."""
+    held = {r[0] for r in conn.execute("SELECT DISTINCT sym FROM positions WHERE status='open'")}
+    return [dict(r, held=r["sym"] in held) for r in conn.execute("SELECT sym, note, added FROM watchlist ORDER BY sym")]
 
 
 @app.post("/api/watchlist")
@@ -417,7 +419,7 @@ def pos_add(item: PositionIn):
                                  "(kế hoạch mua ở vùng khác) - hãy nhập mốc cắt lỗ của bạn.")
     conn.execute("INSERT INTO positions(sym,kind,entry_d,entry_px,qty,stop,stop0,targets,note) VALUES (?,?,?,?,?,?,?,?,?)",
                  (code, plan.get("kind"), R[-1]["d"], entry_px, item.qty, stop, stop, json.dumps(targets), item.note))
-    conn.execute("INSERT OR IGNORE INTO watchlist(sym, note) VALUES (?, ?)", (code, "đang giữ"))   # để luôn được quét
+    conn.execute("INSERT OR IGNORE INTO watchlist(sym) VALUES (?)", (code,))   # để luôn được quét; "đang giữ" tính từ Danh mục
     conn.commit()
     return pos_list()
 

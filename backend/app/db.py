@@ -109,6 +109,9 @@ def _migrate(conn):
     if pt and "slip" not in pt:
         conn.execute("ALTER TABLE paper_trades ADD COLUMN slip REAL")
         conn.commit()
+    # bản cũ ghi chú cố định "đang giữ" khi ghi nhận mua (không đổi khi bán): bỏ, trạng thái giờ tính từ Danh mục
+    if conn.execute("UPDATE watchlist SET note=NULL WHERE note='đang giữ'").rowcount:
+        conn.commit()
     if "replay" not in {r[1] for r in conn.execute("PRAGMA table_info(signals)")}:
         # tín hiệu có trước cột này không biết là báo thật hay tạo lại: coi là tạo lại để không làm đẹp kết quả
         conn.execute("ALTER TABLE signals ADD COLUMN replay INTEGER DEFAULT 0")

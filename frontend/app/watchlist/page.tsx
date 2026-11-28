@@ -5,7 +5,7 @@ import { api, Position, Row, Sale, day, fullDate, num, pct, price } from "@/lib/
 import RiskCard from "@/components/RiskCard";
 import JournalCard from "@/components/JournalCard";
 
-type Item = { sym: string; note: string | null; added: string };
+type Item = { sym: string; note: string | null; added: string; held?: boolean };
 const JSON_HDR = { "Content-Type": "application/json" };
 
 export default function Watchlist() {
@@ -192,7 +192,7 @@ export default function Watchlist() {
                   <td className="n">{r ? price(r.c) : "–"}</td>
                   <td className={`n ${(r?.chg ?? 0) >= 0 ? "up" : "down"}`}>{r ? pct(r.chg, 2) : "–"}</td>
                   <td className="n">{r ? pct(r.rs20) : "–"}</td>
-                  <td style={{ whiteSpace: "normal" }}>{it.note}</td>
+                  <td style={{ whiteSpace: "normal" }}>{it.held && <span className="pill D" style={{ marginRight: 6 }}>đang giữ</span>}{it.note}</td>
                   <td className="n">{fullDate(it.added)}</td>
                   <td><button className="btn" onClick={() => del(it.sym)}>Xóa</button></td>
                 </tr>

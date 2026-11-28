@@ -88,3 +88,18 @@ def test_scan_retry_then_warn(monkeypatch):
     seq = iter([dict(date="2026-11-23", skipped=True), dict(date="2026-11-24", n=700)])
     r = scan.run_with_retry(lambda: next(seq), log)                  # lần 2 đã có nến: quét bình thường
     assert r["n"] == 700 and not sent
+
+
+def test_watchlist_held_follows_positions(tmp_path, monkeypatch):
+    conn = connect(tmp_path / "t.db")
+    conn.execute("INSERT INTO ohlcv(sym,d,o,h,l,c,v) VALUES ('VIX','2026-11-20',12.5,12.9,12.5,12.7,1)")
+    conn.execute("INSERT INTO positions(id,sym,entry_d,entry_px,qty,stop) VALUES (1,'VIX','2026-11-13',13.1,100,11.8)")
+    conn.execute("INSERT INTO watchlist(sym, note) VALUES ('VIX','đang giữ'), ('DIG','chờ Spring')")
+    conn.commit()
+    conn = connect(tmp_path / "t.db")                       # mở lại: bỏ ghi chú cố định "đang giữ" của bản cũ
+    monkeypatch.setattr(api, "conn", conn)
+    c = TestClient(api.app)
+    wl = {x["sym"]: x for x in c.get("/api/watchlist").json()}
+    assert wl["VIX"]["held"] and wl["VIX"]["note"] is None and not wl["DIG"]["held"] and wl["DIG"]["note"] == "chờ Spring"
+    c.post("/api/positions/1/sell", json={})                # bán hết
+    assert not {x["sym"]: x for x in c.get("/api/watchlist").json()}["VIX"]["held"]
