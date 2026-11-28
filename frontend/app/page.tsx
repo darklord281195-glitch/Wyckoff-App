@@ -7,6 +7,12 @@ import IntradayCard from "@/components/IntradayCard";
 import { api, Market, Row, Signal, GROUP_LABEL, STAGE_LABEL, fullDate, num, pct, price } from "@/lib/api";
 
 type SortKey = "sym" | "sector" | "stage" | "chg" | "rs20" | "rs60" | "liq" | "dist" | "ready" | "rr" | "fx10" | "banker";
+/** trạng thái MCDX (cùng nhãn với backend core/mcdx.py STATES), xếp từ tốt tới xấu */
+const BANKER_STATES: [string, string][] = [
+  ["Tay to bắt đầu vào", "🟢"], ["Tay to dẫn dắt", "🟢"], ["Tay to có mặt", "⚪"], ["Tay to giảm", "🟡"],
+  ["Chỉ có đầu cơ", "🟡"], ["Tay to rút ở vùng cao", "🔴"], ["Chưa ai kéo", "🔴"],
+];
+
 /** Giải thích từng cột (hiện khi rê chuột vào tên cột) */
 const TIPS: Record<string, string> = {
   "Mã": "Mã cổ phiếu và sàn niêm yết.",
@@ -39,6 +45,7 @@ export default function Home() {
   const [group, setGroup] = useState("all");
   const [sectorList, setSectorList] = useState<Record<string, string>>({});
   const [stage, setStage] = useState("all");
+  const [bk, setBk] = useState("");                // lọc trạng thái MCDX: "" = tất cả, "has" = có đỏ, còn lại = nhãn
   const [minLiq, setMinLiq] = useState(10);
   const [q, setQ] = useState("");                 // tìm mã: lọc theo tiền tố, Enter mở trang mã
   // phóng to bảng toàn màn hình (Fullscreen API); Esc để thoát
@@ -111,7 +118,8 @@ export default function Home() {
       (stage === "all" || (stage === "early" ? isEarly(r) || r.tag === "D sớm"
         : stage === "zone" ? !!r.in_zone : stage === "spring" ? r.test === "Spring"
         : stage === "test" ? r.test === "ST"
-        : stage === "nearsc" ? r.sc != null && Math.abs(r.sc) <= 5 && !r.test : r.stage === stage)) && r.liq >= minLiq);
+        : stage === "nearsc" ? r.sc != null && Math.abs(r.sc) <= 5 && !r.test : r.stage === stage)) && r.liq >= minLiq &&
+      (!bk || (bk === "has" ? (r.banker ?? 0) > 0 : r.banker_label === bk)));
     const val = (r: Row): number | string =>
       sort.k === "sym" ? r.sym : sort.k === "sector" ? (secOf(r) || "￿") + r.sym : sort.k === "stage" ? STAGE_ORDER[r.stage] * 1000 - (r.rs20 ?? -99) : (r[sort.k] ?? -1e9);
     return v.sort((a, b) => {
@@ -119,7 +127,7 @@ export default function Home() {
       const c = x < y ? -1 : x > y ? 1 : 0;
       return sort.desc ? -c : c;
     });
-  }, [rows, group, stage, minLiq, sort, q, sectorList]);
+  }, [rows, group, stage, minLiq, sort, q, sectorList, bk]);
 
   const th = (k: SortKey, label: string, n = false) => (
     <th className={n ? "n" : undefined} title={TIPS[label] + "\n(Bấm để sắp xếp)"}
@@ -215,6 +223,12 @@ export default function Home() {
               <option value="test">🌱 ST về đáy, chưa Spring (15 phiên)</option>
               <option value="nearsc">⏳ Sát đáy SC ±5%, chưa test (chờ Spring)</option>
               {Object.entries(STAGE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+            <select id="banker" value={bk} onChange={(e) => setBk(e.target.value)} className="btn"
+              title="Lọc theo trạng thái MCDX Plus (cột Banker). Số trong ngoặc = số mã ở phiên này (chưa tính các bộ lọc khác).">
+              <option value="">Mọi trạng thái Banker</option>
+              <option value="has">🟥 Có tay to (đỏ &gt; 0) ({rows.filter((r) => (r.banker ?? 0) > 0).length})</option>
+              {BANKER_STATES.map(([l, icon]) => <option key={l} value={l}>{icon} {l} ({rows.filter((r) => r.banker_label === l).length})</option>)}
             </select>
             <label className="muted">GT ≥ <input id="minliq" type="number" value={minLiq} onChange={(e) => setMinLiq(+e.target.value)} style={{ width: 70 }} /> tỷ</label>
             <button className="btn" onClick={toggleFull} title={full ? "Thoát toàn màn hình (Esc)" : "Phóng to bảng toàn màn hình"}
