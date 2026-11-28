@@ -68,7 +68,9 @@ export type PortfolioRisk = {
 /** Nhật ký (/api/journal): R thật vs R theo luật, cờ vi phạm. */
 export type JournalItem = { id: number; sym: string; kind: string | null; entry_d: string; entry_px: number; stop0: number;
   qty: number | null; status: string; last_sale: string | null; r_real: number | null; r_rule: number | null;
-  diff: number | null; rule_done: boolean; flags: string[] };
+  diff: number | null; rule_done: boolean; flags: string[];
+  /** điểm sai (ok=false, kèm cách khắc phục) và điểm làm tốt của lệnh */
+  lessons?: { ok: boolean; title: string; detail: string; fix: string }[] };
 export type Journal = { items: JournalItem[]; summary: { n: number; open: number; win: number | null; avg_real: number | null;
   avg_rule: number | null; backtest_avg_r: number | null; n_flagged: number; r_lost: number; flag_counts: Record<string, number> } };
 /** Sức mạnh một ngành ICB tại phiên quét (/api/sectors). */

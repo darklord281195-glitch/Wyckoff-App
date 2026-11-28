@@ -217,6 +217,7 @@ Bán thực tế thì bấm **Bán** trên trang Danh mục (bán được từn
 - **R theo luật** = cùng điểm mua, bán đúng luật của Danh mục. **Chênh** âm nghĩa là bạn làm kém luật.
 - **Cờ lúc mua**: mua ngoài vùng vào (lệch > 1%), mua khi đèn đỏ, kế hoạch lời/lỗ < 2. **Cờ lúc bán**: cắt lỗ trễ (còn giữ quá 2 phiên sau tín hiệu cắt lỗ), giữ quá hạn 20 phiên, bán sớm trước mọi tín hiệu bán và dưới T1.
 - Tổng hợp: R TB của bạn, R TB nếu đúng luật, R TB backtest, tổng R mất ở các lệnh có vi phạm.
+- **Điểm sai & cách khắc phục** từng lệnh, viết bằng lời kèm con số và câu "Lần sau: …": mua khi kế hoạch chưa có điểm mua, mua đuổi / dưới vùng mua, mua khi đèn đỏ, lời/lỗ < 2, phiên mua chưa đạt kịch bản mua đẹp (theo nến cả ngày, cùng luật bảng Kiểm tra trước khi mua), cắt lỗ xa hơn 8%, khối lượng vượt mức rủi ro (vốn × % rủi ro × hệ số đèn), cắt lỗ trễ / giữ quá 20 phiên, bán sớm trước tín hiệu (so R thật với R theo luật); kèm các điểm làm tốt. Kế hoạch tại ngày mua tính lại theo luật hiện tại (nếu khác loại kế hoạch lúc ghi nhận thì ghi rõ).
 
 **Sao lưu:** sau mỗi lần quét, danh mục, lịch sử bán, watchlist được ghi ra `backups\portfolio-YYYYMMDD.json` (giữ 30 bản). Khôi phục: `.venv\Scripts\python -m app.backup restore ..\backups\portfolio-YYYYMMDD.json`. Giá OHLCV không sao lưu, mất thì tải lại bằng `app.backtest --backfill`.
 

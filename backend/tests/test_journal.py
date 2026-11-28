@@ -44,3 +44,19 @@ def test_disciplined_trade_has_no_flags_and_open_counts_unrealized():
     assert x["flags"] == [] and x["r_real"] > 2
     op = run(pos(status="open", stop0=None), [], [10, 10.5, 11])  # đang mở: tính theo giá hiện tại; stop0 trống dùng stop
     assert op["items"][0]["r_real"] > 0 and op["summary"]["open"] == 1 and op["summary"]["n"] == 0
+
+
+def test_lessons_explain_mistakes_and_fixes():
+    # mua đuổi + đèn đỏ + lời/lỗ < 2 + bán sớm; phiên mua chưa đạt kịch bản (lý do từ checklist)
+    closes = [10, 10.5, 11, 11.2, 11.5]
+    plan = (dict(entry_lo=9.8, entry_hi=10.1, rr=1.5), "red", ["giá ở nửa dưới biên độ phiên"])
+    x = run(pos(entry_px=10.5), [dict(d="2026-03-03", px=11.0, qty=1000)], closes, plan)["items"][0]
+    titles = [l["title"] for l in x["lessons"] if not l["ok"]]
+    assert titles == ["Mua đuổi, cao hơn vùng mua", "Mua khi đèn thị trường đỏ", "Kế hoạch lời/lỗ dưới 2",
+                      "Phiên mua chưa đạt kịch bản mua đẹp", "Cắt lỗ quá xa", "Bán sớm khi chưa có tín hiệu bán"]
+    assert all(l["fix"] for l in x["lessons"] if not l["ok"]) and "cao hơn cận trên 4,0%" in x["lessons"][0]["detail"]
+    # lệnh kỷ luật: chỉ có điểm làm tốt
+    closes = [10, 10.5, 11, 11.5, 12.1, 12.5, 13.2]
+    ok = J.build([pos(stop=9.4, stop0=9.4)], {1: [dict(d="2026-03-07", px=13.2, qty=1000)]}, lambda s, d: bars(closes), lambda s, d: GOOD_PLAN, 0.02,
+                 dict(capital=100.0, risk_pct=1.0))["items"][0]["lessons"]
+    assert all(l["ok"] for l in ok) and [l["title"] for l in ok][0] == "Mua trong vùng mua"

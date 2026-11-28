@@ -364,15 +364,19 @@ def journal():
         return [r for r in get_ohlcv(conn, sym, 10000, refresh=False) if r["d"] >= d]
 
     def plan_at(sym, d):
+        """(kế hoạch, đèn, lý do phiên mua chưa đạt kịch bản mua đẹp theo nến cả ngày) tại ngày mua."""
         try:
-            _, a = _analysis(sym, d)
+            R, a = _analysis(sym, d)
         except HTTPException:
-            return {}, _light_at(d)
-        return ((a or {}).get("plan") or {}), _light_at(d)
+            return {}, _light_at(d), []
+        plan = (a or {}).get("plan") or {}
+        items = intraday_mod.checklist(plan, R, ((a or {}).get("range") or {}).get("res"), full_day=True) if len(R) > 21 else []
+        fails = [x["why"] for x in items if x["ok"] is False and x["key"] not in ("plan", "zone", "rr")]   # 3 mục này đã có riêng
+        return plan, _light_at(d), fails
 
     bt = conn.execute("SELECT avg_r FROM backtest_stats WHERE plan='Tất cả'").fetchone()
     return journal_mod.build(journal_mod.all_positions(conn), journal_mod.sales_by_position(conn), bars_of, plan_at,
-                             bt[0] if bt else None)
+                             bt[0] if bt else None, risk_mod.get_settings(conn))
 
 
 @app.get("/api/intraday")

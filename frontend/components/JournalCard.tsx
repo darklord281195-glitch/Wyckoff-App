@@ -54,11 +54,37 @@ export default function JournalCard({ reload }: { reload: number }) {
             </tbody>
           </table>
         </div>
+        <h3 style={{ margin: "4px 0 0", fontSize: 15.5 }}>Điểm sai & cách khắc phục</h3>
+        {j.items.filter((x) => x.lessons?.length).map((x) => {
+          const bad = x.lessons!.filter((l) => !l.ok), good = x.lessons!.filter((l) => l.ok);
+          return (
+            <div key={x.id} style={{ border: "1px solid var(--grid)", borderRadius: 8, padding: "10px 12px", display: "grid", gap: 8 }}>
+              <div className="row" style={{ justifyContent: "space-between" }}>
+                <span><Link href={`/symbol/${x.sym}`}><b>{x.sym}</b></Link> <span className="muted">· mua {fullDate(x.entry_d)} giá {price(x.entry_px)}
+                  {x.status === "open" ? " · đang mở" : x.last_sale ? ` · bán ${fullDate(x.last_sale)}` : ""}</span></span>
+                <span>Kết quả <b className={cls(x.r_real)}>{r(x.r_real)}</b>
+                  <span className="muted"> · theo luật {r(x.r_rule)}{x.rule_done ? "" : "*"}</span></span>
+              </div>
+              {bad.length === 0 && <p className="up" style={{ margin: 0 }}>Không có điểm sai: lệnh làm đúng kỷ luật.</p>}
+              {bad.map((l, i) => (
+                <div key={"b" + i} style={{ display: "grid", gridTemplateColumns: "18px 1fr", gap: 6 }}>
+                  <b className="down">✗</b>
+                  <div><b>{l.title}</b> <span className="muted">· {l.detail}</span>
+                    <div style={{ marginTop: 2 }}><span style={{ fontWeight: 600 }}>Lần sau:</span> {l.fix}</div></div>
+                </div>
+              ))}
+              {good.length > 0 && <div className="muted" style={{ fontSize: 13 }}>
+                <span className="up">✓</span> Làm tốt: {good.map((l) => l.title.toLowerCase()).join(" · ")}</div>}
+            </div>
+          );
+        })}
       </>}
       <p className="muted" style={{ margin: 0, fontSize: 12.5 }}>
         R = lãi/lỗ sau phí chia rủi ro lúc mua (giá mua − cắt lỗ đầu); lệnh đang mở tính phần chưa bán theo giá hiện tại.
         R theo luật = cùng điểm mua, bán đúng luật (cắt lỗ, chốt T1/T2, dời cắt lỗ, hết 20 phiên); * = luật chưa bán hết.
         Cờ lúc mua: ngoài vùng vào, đèn đỏ, lời/lỗ &lt; 2. Cờ lúc bán: cắt lỗ trễ (quá 2 phiên sau tín hiệu), giữ quá hạn, bán sớm.
+        Điểm sai tính lại kế hoạch tại ngày mua theo luật hiện tại; “phiên mua chưa đạt kịch bản mua đẹp” xét theo nến cả ngày
+        (cùng luật với bảng Kiểm tra trước khi mua), khối lượng so với vốn và % rủi ro ở thẻ Rủi ro danh mục.
       </p>
     </section>
   );
