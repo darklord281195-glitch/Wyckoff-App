@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import SectorCard from "@/components/SectorCard";
 import IntradayCard from "@/components/IntradayCard";
@@ -40,6 +40,18 @@ export default function Home() {
   const [stage, setStage] = useState("all");
   const [minLiq, setMinLiq] = useState(10);
   const [q, setQ] = useState("");                 // tìm mã: lọc theo tiền tố, Enter mở trang mã
+  // phóng to bảng toàn màn hình (Fullscreen API); Esc để thoát
+  const tblBox = useRef<HTMLElement>(null);
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    const on = () => setFull(document.fullscreenElement === tblBox.current);
+    document.addEventListener("fullscreenchange", on);
+    return () => document.removeEventListener("fullscreenchange", on);
+  }, []);
+  const toggleFull = () => {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else tblBox.current?.requestFullscreen?.().catch(() => {});
+  };
   const router = useRouter();
   const [sort, setSort] = useState<{ k: SortKey; desc: boolean }>({ k: "stage", desc: false });
   const [err, setErr] = useState<string | null>(null);
@@ -172,7 +184,7 @@ export default function Home() {
 
       <SectorCard date={date} active={group} onPick={setGroup} />
 
-      <section className="card" style={{ display: "grid", gap: 12 }}>
+      <section ref={tblBox} className="card" style={{ display: "grid", gap: 12, alignContent: "start" }}>
         <div className="row" style={{ justifyContent: "space-between" }}>
           <div className="tabs">
             {["all", ...Object.keys(GROUP_LABEL)].map((g) => (
@@ -202,6 +214,14 @@ export default function Home() {
               {Object.entries(STAGE_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
             <label className="muted">GT ≥ <input id="minliq" type="number" value={minLiq} onChange={(e) => setMinLiq(+e.target.value)} style={{ width: 70 }} /> tỷ</label>
+            <button className="btn" onClick={toggleFull} title={full ? "Thoát toàn màn hình (Esc)" : "Phóng to bảng toàn màn hình"}
+              aria-label={full ? "Thoát toàn màn hình" : "Phóng to toàn màn hình"} style={{ padding: "0 9px" }}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                {full
+                  ? <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+                  : <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />}
+              </svg>
+            </button>
           </div>
         </div>
         <div className="tbl">

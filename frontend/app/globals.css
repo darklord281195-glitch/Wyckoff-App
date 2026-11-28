@@ -91,6 +91,9 @@ input[type="search"]::-webkit-search-cancel-button { cursor: pointer; }
 
 /* ---- bảng ---- */
 .tbl { overflow-x: auto; border-radius: 8px; }
+.card:fullscreen { overflow: auto; border-radius: 0; border: 0; padding: 16px 24px; }   /* bảng phóng to toàn màn hình */
+.card:fullscreen .tbl { max-height: calc(100vh - 110px); overflow: auto; }
+.card:fullscreen thead th { position: sticky; top: 0; z-index: 1; }   /* tiêu đề cột đứng yên khi cuộn */
 table { border-collapse: separate; border-spacing: 0; width: 100%; min-width: 760px; }
 th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
 th { position: sticky; top: 0; z-index: 1; background: var(--soft); font-size: 11.5px; font-weight: 600; text-transform: uppercase;
