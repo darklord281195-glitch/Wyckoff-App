@@ -43,6 +43,15 @@ tbody tr.on { background: var(--accent-soft); }
 .notice { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; padding: 8px 14px; border-radius: 8px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
 .btn:disabled { opacity: .6; cursor: default; }
 .tbl { overflow-x: auto; }
+/* bảng xếp dọc trên điện thoại: mỗi dòng thành một khối (ô đầu cả dòng, ô có data-label hiện nhãn) */
+@media (max-width: 640px) {
+  .stack table { min-width: 0 !important; }
+  .stack thead { display: none; }
+  .stack tr { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 4px 10px; padding: 10px 0; border-bottom: 1px solid var(--grid); }
+  .stack td { border: 0; padding: 0; white-space: normal; min-width: 0 !important; }
+  .stack td:first-child, .stack td:last-child { grid-column: 1 / -1; }
+  .stack td[data-label]::before { content: attr(data-label) ": "; color: var(--muted); font-family: var(--font); font-size: 12.5px; }
+}
 table { border-collapse: collapse; width: 100%; min-width: 760px; }
 th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
 th { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); cursor: pointer; user-select: none; }

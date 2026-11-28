@@ -105,7 +105,10 @@ export type Forward = { items: ForwardItem[]; summary: { n: number; filled: numb
   first: string | null; last: string | null } };
 /** Chỉ số cơ bản từ BCTC quý (tỷ đồng, %). */
 export type Fundamentals = { fiscal?: string; np_ttm?: number | null; np_growth?: number | null; roe?: number | null;
-  debt_equity?: number | null; revenue_ttm?: number | null; pe?: number | null; mcap?: number | null; error?: string | null };
+  debt_equity?: number | null; revenue_ttm?: number | null; pe?: number | null; mcap?: number | null; error?: string | null;
+  /** trung vị các mã cùng ngành ICB có BCTC (n mã) */
+  sector?: { name: string | null; n: number; roe: number | null; np_growth: number | null; margin: number | null;
+    debt_equity: number | null; pe: number | null } | null };
 /** Dòng tiền theo ngành (/api/flow). share/d_share: %, điểm %; value: tỷ đồng/phiên; ret/rel: %. */
 export type FlowRow = { icb: string; name: string; share: number; share_prev: number; d_share: number; value: number;
   value_prev: number; value_chg: number | null; ret: number; rel: number; fx: number | null; label: string;

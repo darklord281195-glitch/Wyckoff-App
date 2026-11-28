@@ -71,7 +71,20 @@ def _fundamentals(code: str, at: str | None):
                 conn.commit()
             except Exception as e:
                 err = err or str(e)
-    return dict(m or {}, pe=pe and pe["pe"], mcap=pe and pe["mcap"], error=err) if (m or pe) else (dict(error=err) if err else None)
+    out = dict(m or {}, pe=pe and pe["pe"], mcap=pe and pe["mcap"], error=err) if (m or pe) else (dict(error=err) if err else None)
+    if out and m:                                 # trung vị ngành (ICB) để so sánh trên thẻ Cơ bản
+        lst = listing(conn)
+        icb = (lst.get(code) or {}).get("icb")
+        if icb:
+            peers = [s for s, v in lst.items() if v.get("icb") == icb and s != code]
+            key = (icb, at or dt.date.today().isoformat(), m.get("fiscal"))
+            if key not in _PEER_CACHE:
+                _PEER_CACHE[key] = fund.peer_medians(conn, peers, m.get("fiscal"), at)
+            out["sector"] = dict(name=(lst.get(code) or {}).get("icb_name"), **_PEER_CACHE[key]) if _PEER_CACHE[key] else None
+    return out
+
+
+_PEER_CACHE: dict = {}            # (ngành, ngày, quý) -> trung vị ngành; tính lại mỗi ngày
 
 
 @app.get("/api/flow")

@@ -188,3 +188,20 @@ def test_hourly_add_atc():
     out = add_atc(H, D)
     assert out[1]["c"] == 23.0 and out[1]["l"] == 22.8 and out[1]["v"] == 1.32   # thêm 0,13 tr cp của ATC
     assert out[0] == H[0] and out[2] == H[2] and H[1]["c"] == 23.45               # nến khác và dữ liệu gốc không đổi
+
+
+def test_peer_medians(tmp_path, monkeypatch):
+    from app.core import fundamentals as F
+    conn = connect(tmp_path / "t.db")
+    def rows(np_q, rev=None):
+        out = []
+        for f in ("2024-12-31", "2025-03-31", "2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"):
+            out += [dict(fiscal=f, created="2026-01-01", item="np", value=np_q), dict(fiscal=f, created="2026-01-01", item="equity", value=100.0)]
+            if rev:
+                out.append(dict(fiscal=f, created="2026-01-01", item="revenue", value=rev))
+        return out
+    data = {"A": rows(2.5, 10), "B": rows(5.0, 20), "C": rows(1.0, 50), "D": rows(9.0)[:2]}   # D: chỉ có quý cũ -> bỏ
+    monkeypatch.setattr(F, "load", lambda c, s: data[s])
+    m = F.peer_medians(conn, list(data), "2026-09-30")
+    assert (m["n"], m["roe"], m["margin"], m["np_growth"], m["pe"]) == (3, 10.0, 25.0, 0.0, None)   # ROE 10/20/4, biên 25/25/2
+    assert F.peer_medians(conn, ["A", "D"], "2026-09-30") is None                                     # dưới 3 mã: không so

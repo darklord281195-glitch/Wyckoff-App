@@ -70,6 +70,35 @@ def sync(conn, syms, workers=6, force=False, fetcher=fetch) -> list[str]:
     return errors
 
 
+def _median(xs):
+    xs = sorted(x for x in xs if x is not None)
+    if not xs:
+        return None
+    m = len(xs) // 2
+    return round(xs[m] if len(xs) % 2 else (xs[m - 1] + xs[m]) / 2, 2)
+
+
+def peer_medians(conn, syms: list[str], fiscal: str | None, d: str | None = None, min_n: int = 3) -> dict | None:
+    """Trung vị ngành để so sánh: ROE, tăng trưởng LNST, biên lợi nhuận, nợ vay/VCSH, P/E của các mã cùng ngành có BCTC
+    (chỉ báo cáo đã công bố tới ngày d; bỏ mã có quý gần nhất cũ hơn quý của mã đang xem quá 2 quý). None nếu < min_n mã."""
+    ms, pes = [], []
+    oldest = _quarters_back(fiscal, 2) if fiscal else None
+    for s in syms:
+        m = metrics_at(load(conn, s), d)
+        if not m or (oldest and m["fiscal"] < oldest):
+            continue
+        m["margin"] = round(m["np_ttm"] / m["revenue_ttm"] * 100, 1) if m.get("np_ttm") is not None and m.get("revenue_ttm") else None
+        ms.append(m)
+        row = conn.execute("SELECT pe FROM fin_meta WHERE sym=?", (s,)).fetchone()
+        if row and row[0] and 0 < row[0] < 200 and not d:
+            pes.append(row[0])
+    if len(ms) < min_n:
+        return None
+    return dict(n=len(ms), roe=_median(m["roe"] for m in ms), np_growth=_median(m["np_growth"] for m in ms if (m["np_growth"] or 0) < 999),
+                margin=_median(m["margin"] for m in ms), debt_equity=_median(m["debt_equity"] for m in ms),
+                pe=_median(pes) if len(pes) >= min_n else None)
+
+
 def load(conn, sym) -> list[dict]:
     return [dict(r) for r in conn.execute("SELECT fiscal, created, item, value FROM fin_quarter WHERE sym=?", (sym,))]
 
