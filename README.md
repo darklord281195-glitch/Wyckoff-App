@@ -206,6 +206,20 @@ Theo mức banker lúc mua (mọi lệnh): 0% kém nhất ở cả hai giai đo�
 
 Trang **Tổng quan** có cột **NN 10p (tỷ)**: khối ngoại mua ròng 10 phiên tới phiên quét, sắp xếp được. Lần quét cuối ngày tải khối ngoại cho các mã có GT TB20 ≥ 1 tỷ (khoảng 240 mã, thêm khoảng 10 giây). Hiện "–" khi mã kém thanh khoản hoặc nguồn chưa có số liệu của đúng phiên quét.
 
+## Top 10 tiềm năng (trang `/top`, `core/rank.py`)
+Bảng xếp hạng **để tham khảo, không phải luật mua mới**: tín hiệu, luật ẩn theo đèn, kế hoạch giao dịch và tự mua thử nghiệm không đổi. Mỗi mã GT TB20 ≥ 10 tỷ được chấm 3 mục, mỗi mục 0–100; **điểm % = trung bình cộng (1/3 mỗi mục)**. Trọng số và ngưỡng là ước lượng, không chỉnh theo kết quả kiểm chứng.
+
+| Mục | Thành phần (điểm) |
+|---|---|
+| **1. Wyckoff** | Pha: D-LPS 40 · D sớm 36 · D-LPS? 34 · D-SOS 30 · sát trần 28 · B/C 18 (+12 có Spring ≤ 15 phiên, +6 có ST) · dưới hỗ trợ 12 nếu kế hoạch Spring/Test, không thì 8 · E? 10 · SOS hỏng 6 · mới tạo đáy 4. Điểm sẵn sàng ≥ 80: 20 · 70–79: 16 · 60–69: 12 · < 60: 4. Giá trong vùng vào 15 · dưới vùng, trên cắt lỗ 10 · trên vùng ≤ 3%: 6. Lời/lỗ ≥ 3: 15 · ≥ 2: 10 · ≥ 1,5: 5. Dư địa tới mục tiêu chính ≥ 25%: 10 · ≥ 15%: 7 · ≥ 8%: 4. Trừ 8 nếu có chuỗi đỉnh hạ, trừ 10 nếu có vùng phân phối. Kẹp 0–100. |
+| **2. Kỹ thuật & Cơ bản** (5 × 20) | RSI 14: 50–65: 20 · 65–75: 14 · 45–50: 12 · 35–45: 8 · ≥ 75: 6 · < 35: 4. MACD 12-26-9: trên tín hiệu 8 + histogram tăng 6 + trên 0 được 6. MCDX: tay to bắt đầu vào 20 · dẫn dắt 18 · có mặt 12 · giảm 7 · chỉ đầu cơ 5 · rút/chưa ai kéo 0. Ichimoku: trên mây 8 (trong mây 4) + Tenkan > Kijun 6 + mây phía trước xanh 3 + giá trên giá 26 phiên trước 3. BCTC: lãi 4 quý, tăng trưởng, ROE, biên lãi, nợ vay/VCSH, cùng ngưỡng thẻ Cơ bản, 20 × (tốt + ½ trung bình) / số chỉ tiêu; không tính P/E (không có số liệu theo thời điểm). Thiếu dữ liệu: nửa điểm. |
+| **3. Dòng tiền** (2 × 50) | Khối ngoại: 25 + 25 × (mua ròng 20 phiên / GT 20 phiên ÷ 10%), kẹp 0–50. Tự doanh: như trên với thang 3%. Thiếu dữ liệu: 25 (trung tính). |
+
+- **Tính lại sau mỗi phiên**: lần quét 15:30 (quét đủ mọi mã) chấm xong thì lưu cả bảng của phiên vào `rank_daily`; trong giờ giao dịch không tính. Trang hiện ▲▼/🆕 so với phiên trước hoặc 1 tuần trước (phiên quét thứ 5 trước đó), các mã **rời top** (kèm hạng hiện tại hoặc lý do) và số phiên mỗi mã nằm trong top trong 20 phiên gần nhất. Lần đầu (và máy D sau khi pull) chạy một lần `python -m app.rank_bt --daily` để lấp các phiên đã quét.
+- **Tự doanh** tải lúc quét cho các mã GT ≥ 10 tỷ (`proprietary.sync_prop`), chấp nhận nguồn CafeF trễ ≤ 2 phiên; trễ hơn thì tính trung tính. Mở trang Top ở phiên mới nhất mà 20 mã đầu còn thiếu tự doanh thì app thử tải thêm (mỗi mã tối đa 1 lần/giờ).
+- **Tin Telegram 15:30** có thêm đoạn `🏆 Top 10 tiềm năng` (mã · điểm, 🆕 = mới vào top, dòng *Rời top*, link trang `/top`); đèn đỏ thì ghi "chỉ để theo dõi".
+- **Kiểm chứng lịch sử** (`python -m app.rank_bt`, khoảng 1 phút): đầu mỗi tháng từ 2019-06 chấm lại mọi mã đủ thanh khoản chỉ bằng dữ liệu tới ngày đó (cùng hàm chấm điểm), so lợi nhuận 20 phiên sau (mua giá mở cửa phiên kế tiếp) của top 10 với các mã có điểm mua, mọi mã đủ thanh khoản và VNINDEX, tách 2019–23 / 2024–26. Cách đọc: *có lợi thế* khi cột Top cao hơn cột *Có điểm mua* ở **cả hai** giai đoạn; *Top thắng* = % số tháng top hơn nhóm có điểm mua; IC = tương quan hạng giữa điểm (tổng và từng mục W/T/F) với lợi nhuận, > 0,05 mới có ích, ≈ 0 là không dự báo được. Giới hạn: chỉ mã đang niêm yết, chưa trừ phí, tự doanh tính trung tính (nguồn chỉ ~1 năm). Kết quả ghi bảng `rank_bt` (thẻ trên trang Top) và `logs/rank-bt-YYYYMMDD.csv`; task thứ 6 (`scripts/weekly-review.bat`) tự chạy lại, log ở `logs/rank-bt-last.txt`. Lần chạy 28/11/2026: chưa có lợi thế ổn định (top 10 kém nhóm có điểm mua ở 2019–23, hơn ở 2024–26; IC ≈ 0).
+
 ## Danh mục đang giữ
 Trên trang mã, mục Kế hoạch giao dịch, bấm **Ghi nhận đã mua**. Có thể sửa giá mua; nếu mua từ trước thì chọn ngày mua. Cắt lỗ và mục tiêu được **chốt theo kế hoạch tại ngày mua**, không đổi theo các lần quét sau. Mã được tự thêm vào watchlist.
 
